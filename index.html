@@ -65,6 +65,7 @@ button{font-family:inherit;font-weight:800;color:var(--text);border:0;cursor:poi
 .pm{width:42px;height:42px;border-radius:50%;background:#30356e;font-size:22px}
 .head{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
 .stars{color:var(--gold);font-weight:800;font-size:20px}
+.ver{position:fixed;bottom:10px;left:0;right:0;text-align:center;font-size:12px;color:var(--sub);opacity:.7}
 .hint{color:var(--sub);font-size:13px;text-align:center;margin:-6px 0 14px}
 .note{background:rgba(255,216,74,.12);border:1px solid rgba(255,216,74,.4);border-radius:12px;padding:10px 14px;margin-bottom:14px;font-weight:800;text-align:center}
 
@@ -114,6 +115,7 @@ button{font-family:inherit;font-weight:800;color:var(--text);border:0;cursor:poi
   <h1 class="logo">ピタッとビート</h1>
   <div class="tag">おとに あわせて ピタッ！</div>
   <button class="btn go" id="btnPlay">あそぶ</button>
+  <div class="ver" id="verLine"></div>
 </section>
 
 <!-- きょくえらび -->
@@ -232,6 +234,7 @@ const LEVELS = [
   { name: 'おに',       need: 16 }
 ];
 const RANKS = [ ['S', 950000, 3], ['A', 900000, 2], ['B', 800000, 1], ['C', 700000, 1], ['D', 0, 0] ];
+const VERSION = 'v3';
 const AUTO = /[?&]auto/.test(location.search); // おてほん（テスト用・記録は別の箱）
 
 /* ===== [記録] この端末の中だけに保存（外には送らない） ===== */
@@ -263,17 +266,11 @@ const PlayLimit = {
 let actx = null, master = null, noiseBuf = null;
 // iPhone・iPad はマナーモードだとゲームの音が消える。音楽再生あつかいにして鳴らす
 let unlockEl = null;
-function silentWavUrl() {
-  const n = 4410, b = new ArrayBuffer(44 + n * 2), v = new DataView(b);
-  const s = (o, t) => { for (let i = 0; i < t.length; i++) v.setUint8(o + i, t.charCodeAt(i)); };
-  s(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); s(8, 'WAVEfmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
-  v.setUint32(24, 44100, true); v.setUint32(28, 88200, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true); s(36, 'data'); v.setUint32(40, n * 2, true);
-  return URL.createObjectURL(new Blob([b], { type: 'audio/wav' }));
-}
+const SILENT_MP3 = 'data:audio/mpeg;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjYyLjEyLjEwMQAAAAAAAAAAAAAA//tAwAAAAAAAAAAAAAAAAAAAAAAASW5mbwAAAA8AAAALAAAFMwA3Nzc3Nzc3NzdLS0tLS0tLS0tfX19fX19fX19zc3Nzc3Nzc3OHh4eHh4eHh4ebm5ubm5ubm5uvr6+vr6+vr6/Dw8PDw8PDw8PX19fX19fX19fr6+vr6+vr6+v///////////8AAAAATGF2YzYyLjI4AAAAAAAAAAAAAAAAJAQvAAAAAAAABTMXaM+kAAAAAAD/+xDEAAPAAAGkAAAAIAAANIAAAARMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVTEFNRTMuMTAwVf/7EsQpg8AAAaQAAAAgAAA0gAAABFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVTEFNRTMuMTAwVf/7EMRTg8AAAaQAAAAgAAA0gAAABFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVMQU1FMy4xMDBV//sSxH0DwAABpAAAACAAADSAAAAEVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVMQU1FMy4xMDBV//sQxKcDwAABpAAAACAAADSAAAAEVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVUxBTUUzLjEwMFX/+xLE0IPAAAGkAAAAIAAANIAAAARVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVX/+xDE1gPAAAGkAAAAIAAANIAAAARVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/7EsTVg8AAAaQAAAAgAAA0gAAABFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/7EMTWA8AAAaQAAAAgAAA0gAAABFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//sSxNWDwAABpAAAACAAADSAAAAEVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//sQxNYDwAABpAAAACAAADSAAAAEVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVU=';
 function unlockAudio() {
   try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (e) {}
   try {
-    if (!unlockEl) { unlockEl = new Audio(); unlockEl.setAttribute('playsinline', ''); unlockEl.loop = true; unlockEl.src = silentWavUrl(); }
+    if (!unlockEl) { unlockEl = document.createElement('audio'); unlockEl.setAttribute('playsinline', ''); unlockEl.setAttribute('x-webkit-airplay', 'deny'); unlockEl.preload = 'auto'; unlockEl.loop = true; unlockEl.src = SILENT_MP3; document.body.appendChild(unlockEl); }
     const pr = unlockEl.play(); if (pr && pr.catch) pr.catch(() => {});
   } catch (e) {}
   if (actx && actx.state !== 'running') { const pr = actx.resume(); if (pr && pr.catch) pr.catch(() => {}); }
@@ -1107,6 +1104,11 @@ document.addEventListener('visibilitychange', () => { if (document.hidden) pause
 
 if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
 if (AUTO) { G.lv = Math.min(3, parseInt((location.search.match(/lv=(\d)/) || [0, 0])[1], 10)); Save.data.unlockAll = true; }
+function showVer() {
+  const st = actx ? actx.state : 'まだ';
+  $('verLine').textContent = VERSION + '　おと：' + (st === 'running' ? 'OK' : st);
+}
+showVer(); setInterval(showVer, 1000);
 requestAnimationFrame(loop);
 </script>
 </body>
