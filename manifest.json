@@ -1,0 +1,15 @@
+{
+  "name": "ピタッとビート",
+  "short_name": "ピタッとビート",
+  "description": "おとに あわせて ピタッ！ リズムゲーム",
+  "start_url": "./index.html",
+  "id": "./",
+  "display": "fullscreen",
+  "background_color": "#0a0a24",
+  "theme_color": "#0a0a24",
+  "orientation": "any",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ],
+  "categories": ["games", "music", "kids"]
+}
