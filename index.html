@@ -65,6 +65,7 @@ button{font-family:inherit;font-weight:800;color:var(--text);border:0;cursor:poi
 .pm{width:42px;height:42px;border-radius:50%;background:#30356e;font-size:22px}
 .head{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
 .stars{color:var(--gold);font-weight:800;font-size:20px}
+.hint{color:var(--sub);font-size:13px;text-align:center;margin:-6px 0 14px}
 .note{background:rgba(255,216,74,.12);border:1px solid rgba(255,216,74,.4);border-radius:12px;padding:10px 14px;margin-bottom:14px;font-weight:800;text-align:center}
 
 /* ずれちょうせい */
@@ -126,6 +127,7 @@ button{font-family:inherit;font-weight:800;color:var(--text);border:0;cursor:poi
       <div class="opt">はやさ <button class="pm" id="spdDown">−</button><b id="spdVal">5</b><button class="pm" id="spdUp">＋</button></div>
       <div class="opt">たたく おと <button class="btn small sub" id="tapSnd">ON</button></div>
     </div>
+    <div class="hint">おとが きこえないときは：おとの おおきさを あげる／マナーモードを きる</div>
     <div class="row">
       <button class="btn sub small" id="btnBack">もどる</button>
       <button class="btn sub small" id="btnCal">ずれ ちょうせい</button>
@@ -259,10 +261,35 @@ const PlayLimit = {
 
 /* ===== [音] Web Audio。ゲームの時計は「音の時計」ひとつに揃える ===== */
 let actx = null, master = null, noiseBuf = null;
+// iPhone・iPad はマナーモードだとゲームの音が消える。音楽再生あつかいにして鳴らす
+let unlockEl = null;
+function silentWavUrl() {
+  const n = 4410, b = new ArrayBuffer(44 + n * 2), v = new DataView(b);
+  const s = (o, t) => { for (let i = 0; i < t.length; i++) v.setUint8(o + i, t.charCodeAt(i)); };
+  s(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); s(8, 'WAVEfmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, 44100, true); v.setUint32(28, 88200, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true); s(36, 'data'); v.setUint32(40, n * 2, true);
+  return URL.createObjectURL(new Blob([b], { type: 'audio/wav' }));
+}
+function unlockAudio() {
+  try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (e) {}
+  try {
+    if (!unlockEl) { unlockEl = new Audio(); unlockEl.setAttribute('playsinline', ''); unlockEl.loop = true; unlockEl.src = silentWavUrl(); }
+    const pr = unlockEl.play(); if (pr && pr.catch) pr.catch(() => {});
+  } catch (e) {}
+  if (actx && actx.state !== 'running') { const pr = actx.resume(); if (pr && pr.catch) pr.catch(() => {}); }
+}
+// 画面のどこを触っても、止まっていた音を起こす
+['pointerdown', 'touchend', 'keydown'].forEach(ev => window.addEventListener(ev, () => { if (actx && actx.state !== 'running' && !G.paused) unlockAudio(); }, true));
+function chime() {
+  const t = actx.currentTime + 0.02;
+  [76, 79, 84].forEach((m, i) => tone(master, t + i * 0.09, m, 0.18, 'triangle', 0.25, 4000));
+}
 function initAudio() {
-  if (actx) { if (actx.state === 'suspended') actx.resume(); return; }
+  unlockAudio();
+  if (actx) return;
   const AC = window.AudioContext || window.webkitAudioContext;
   try { actx = new AC({ latencyHint: 'interactive' }); } catch (e) { actx = new AC(); }
+  unlockAudio();
   const comp = actx.createDynamicsCompressor();
   comp.threshold.value = -16; comp.ratio.value = 4; comp.attack.value = 0.003; comp.release.value = 0.15;
   master = actx.createGain(); master.gain.value = 0.85;
@@ -1023,7 +1050,7 @@ function goFull() {
   const d = document.documentElement;
   try { if (!document.fullscreenElement && d.requestFullscreen) d.requestFullscreen().catch(() => {}); } catch (e) {}
 }
-$('btnPlay').onclick = () => { initAudio(); goFull(); renderSelect(); show('scrSelect'); };
+$('btnPlay').onclick = () => { initAudio(); chime(); goFull(); renderSelect(); show('scrSelect'); };
 $('btnBack').onclick = () => show('scrTitle');
 $('btnCal').onclick = () => calStart('scrSelect');
 $('btnStart').onclick = () => {
