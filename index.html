@@ -251,7 +251,7 @@ const LEVELS = [
   { name: 'おに',       need: 16 }
 ];
 const RANKS = [ ['S', 950000, 3], ['A', 900000, 2], ['B', 800000, 1], ['C', 700000, 1], ['D', 0, 0] ];
-const VERSION = 'v4';
+const VERSION = 'v5';
 const AUTO = /[?&]auto/.test(location.search); // おてほん（テスト用・記録は別の箱）
 
 /* ===== [記録] この端末の中だけに保存（外には送らない） ===== */
@@ -410,15 +410,15 @@ const SONGS = [
   { id: 'stardust', title: 'スターダスト・ステップ', sub: 'ゆったり ダンス', icon: '✨', color: '#7c5cff',
     bpm: 126, key: 57, mode: 'minor', seed: 11, lead: 'square',
     prog: [[0, 'm'], [-4, 'M'], [3, 'M'], [-2, 'M']],
-    form: ['intro4', 'verse8', 'build4', 'chorus8', 'break4', 'verse8', 'chorus8', 'chorus8', 'outro4'] },
+    form: ['intro4', 'verse8', 'build4', 'chorus8', 'break4', 'verse8', 'build4', 'chorus8', 'break4', 'chorus8', 'outro4'] },
   { id: 'neon', title: 'ネオン・ラッシュ', sub: 'ノリノリ ユーロビート', icon: '⚡', color: '#ff4d9a',
     bpm: 150, key: 50, mode: 'minor', seed: 23, lead: 'sawtooth',
     prog: [[0, 'm'], [-4, 'M'], [-2, 'M'], [0, 'm']],
-    form: ['intro4', 'verse8', 'build4', 'chorus8', 'break4', 'verse8', 'build4', 'chorus8', 'chorus8', 'outro4'] },
+    form: ['intro4', 'verse8', 'build4', 'chorus8', 'break4', 'verse8', 'build4', 'chorus8', 'break4', 'chorus8', 'chorus8', 'outro4'] },
   { id: 'galaxy', title: 'ギャラクシー・ハイパー', sub: 'はやい！ ハッピーハードコア', icon: '🚀', color: '#20c9e0',
     bpm: 170, key: 48, mode: 'major', seed: 37, lead: 'sawtooth',
     prog: [[5, 'M'], [7, 'M'], [4, 'm'], [9, 'm']],
-    form: ['intro4', 'verse8', 'build4', 'chorus8', 'break4', 'verse8', 'build4', 'chorus8', 'chorus8', 'outro4'] }
+    form: ['intro4', 'verse8', 'build4', 'chorus8', 'chorus8', 'break4', 'verse8', 'build4', 'chorus8', 'break4', 'chorus8', 'chorus8', 'outro4'] }
 ];
 // メロディのリズムの型（[16分の位置, 長さ]）
 const RHY = {
@@ -468,15 +468,20 @@ function buildSong(song) {
   const ev = [], mel = [], secs = [], motifs = {};
   const add = (g, f, a) => ev.push({ t: g * step, f, a });
   let bar = 0;
-  for (const fs of song.form) {
+  const lastBreak = song.form.map(f => f.replace(/\d+/, '')).lastIndexOf('break'), seen = {};
+  song.form.forEach((fs, fi) => {
     const type = fs.replace(/\d+/, ''), nb = parseInt(fs.match(/\d+/)[0], 10);
     const g0 = bar * 16;
-    secs.push({ type, g0, g1: g0 + nb * 16 });
+    const boost = type === 'chorus' && fi > lastBreak ? 2 : (seen[type] ? 1 : 0);
+    seen[type] = 1;
+    const tr = boost === 2 ? 2 : 0;
+    secs.push({ type, g0, g1: g0 + nb * 16, boost });
     if (type !== 'intro') add(g0, 'crash', 0.2);
+    if (boost === 2) for (let b = 4; b < nb; b += 4) add(g0 + b * 16, 'crash', 0.18);
     for (let b = 0; b < nb; b++) {
       const gb = g0 + b * 16, ch = chordAt(b), last = b === nb - 1;
-      const bassRoot = inRange(song.key - 12 + ch[0], 33, 44);
-      const padMs = chordPcs(ch).map(pc => inRange(song.key + pc, 52, 66));
+      const bassRoot = inRange(song.key - 12 + ch[0], 33, 44) + tr;
+      const padMs = chordPcs(ch).map(pc => inRange(song.key + pc, 52, 66) + tr);
       // ドラム
       const kickOn = type === 'verse' || type === 'build' || type === 'chorus' || (type === 'intro' && b >= 2) || (type === 'outro' && !last);
       if (kickOn) for (let s = 0; s < 16; s += 4) add(gb + s, 'kick');
@@ -505,14 +510,14 @@ function buildSong(song) {
           if (d < 0) d = 1; if (d > 11) d = 10;
           if (n.s % 4 === 0) d = nearChord(d, ch, n.mv);
           if (notes !== motifs[type] && i === notes.length - 1) d = nearChord(d, ch, 0);
-          const g = g0 + p * 32 + n.s, m = degMidi(d);
-          mel.push({ g, d: n.d, pitch: m, type });
+          const g = g0 + p * 32 + n.s, m = degMidi(d) + tr;
+          mel.push({ g, d: n.d, pitch: m, type, boost });
           add(g, 'lead', { m, d: n.d * step * 0.92, oct: type === 'chorus' });
         });
       }
     }
     bar += nb;
-  }
+  });
   ev.sort((a, b) => a.t - b.t);
   mel.sort((a, b) => a.g - b.g);
   const S = { song, step, beat: step * 4, ev, mel, secs, totalG: bar * 16, dur: bar * 16 * step };
@@ -529,10 +534,15 @@ function buildChart(S, lv) {
   if (lv >= 2) S.secs.forEach(s => { if (s.type === 'build') rollBars.push([s.g1 - 16, s.g1]); });
   const inRoll = g => rollBars.some(r => g >= r[0] && g < r[1]);
   S.mel.forEach(n => {
-    if (lv === 0 && n.g % 4 !== 0) return;
+    if (lv === 0 && n.g % (n.boost === 2 ? 2 : 4) !== 0) return; // かんたんもラストサビは裏拍が少し入る
     if (lv === 1 && n.g % 2 !== 0) return;
+    if (lv <= 1 && n.type === 'build') { // サビ前はサビより増やさない。最後の1小節で少しだけ詰める
+      const sec = S.secs.find(q => n.g >= q.g0 && n.g < q.g1), lastBar = n.g >= sec.g1 - 16;
+      if (n.g % ((lv === 0 ? 8 : 4) / (lastBar ? 2 : 1)) !== 0) return;
+    }
     if (inRoll(n.g)) return;
-    c.push({ g: n.g, len: n.d >= holdMin ? n.d : 0, p: n.pitch, sec: n.type });
+    const hm = lv === 1 && n.boost === 2 ? 6 : holdMin;
+    c.push({ g: n.g, len: n.d >= hm ? n.d : 0, p: n.pitch, sec: n.type, boost: n.boost });
   });
   S.secs.forEach(s => {
     if (s.type === 'intro' || s.type === 'outro') {
@@ -547,7 +557,9 @@ function buildChart(S, lv) {
     if (s.type === 'break' && lv >= 2) for (let g = s.g1 - 8; g < s.g1; g += 2) c.push({ g, len: 0, p: null, sec: 'roll' });
     if (s.type === 'chorus' && lv === 3) {
       const has = {}; S.mel.forEach(n => { has[n.g] = 1; });
-      for (let g = s.g0; g < s.g1; g += 2) if (!has[g] && !has[g - 1] && !has[g + 1]) c.push({ g, len: 0, p: null, sec: 'fill' });
+      for (let g = s.g0; g < s.g1; g += 2) if (!has[g] && !has[g - 1] && !has[g + 1]) c.push({ g, len: 0, p: null, sec: 'fill', boost: s.boost });
+      // おにのラストサビ：2小節ごとに 最後の1拍を16分で
+      if (s.boost === 2) for (let g = s.g0 + 16; g < s.g1; g += 32) for (let k = 12; k < 16; k++) if (!has[g + k]) c.push({ g: g + k, len: 0, p: null, sec: 'roll', boost: 2 });
     }
   });
   rollBars.forEach(r => { for (let g = r[0]; g < r[1]; g += (lv === 2 ? 2 : 1)) c.push({ g, len: 0, p: null, sec: 'roll' }); });
@@ -580,7 +592,13 @@ function buildChart(S, lv) {
     if (k.len) { n.end = (k.g + k.len) * S.step - S.step * 0.5; busy[lane] = k.g + k.len; if (lv <= 1) holdBlock = k.g + k.len; }
     else busy[lane] = k.g;
     notes.push(n);
-    const dbl = k.sec === 'chorus' && ((lv === 2 && k.g % 16 === 0) || (lv === 3 && k.g % 4 === 0));
+    // 同時押し：サビの頭から。2回目・ラストサビで増える
+    const B = k.boost || 0;
+    const dbl = (k.sec === 'chorus' && (lv === 0 ? B === 2 && k.g % 16 === 0
+                                     : lv === 1 ? (B >= 1 && k.g % 16 === 0) || (B === 2 && k.g % 8 === 0)
+                                     : lv === 2 ? k.g % (B === 2 ? 8 : 16) === 0
+                                     : k.g % 4 === 0))
+             || (k.sec === 'verse' && lv >= 2 && B >= 1 && k.g % 16 === 0);
     if (dbl) {
       let l2 = -1;
       [(lane + 2) % 4, (lane + 3) % 4, (lane + 1) % 4].some(x => { if (free(x, k.g) && Math.abs(x - lane) >= 1) { l2 = x; return true; } return false; });
