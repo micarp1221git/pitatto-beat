@@ -85,6 +85,10 @@ button{font-family:inherit;font-weight:800;color:var(--text);border:0;cursor:poi
 #btnPause{position:fixed;top:10px;right:10px;width:54px;height:54px;border-radius:50%;background:rgba(40,40,90,.75);
   border:1px solid var(--line);font-size:22px;display:none;z-index:5}
 #btnPause.on{display:block}
+#btnGear{position:fixed;top:10px;right:10px;width:54px;height:54px;border-radius:50%;background:rgba(40,40,90,.75);
+  border:1px solid var(--line);font-size:26px;display:none;z-index:5}
+#btnGear.on{display:block}
+#scrSettings .panel{text-align:center;width:min(480px,100%)}
 #scrPause .panel,#scrResult .panel,#scrLimit .panel{text-align:center;width:min(480px,100%)}
 #scrPause .row{flex-direction:column}
 #scrPause .btn{width:100%}
@@ -103,12 +107,14 @@ button{font-family:inherit;font-weight:800;color:var(--text);border:0;cursor:poi
 .resStars span.on{opacity:1;animation:pop .5s cubic-bezier(.2,1.6,.4,1) both}
 .fs{color:var(--sub);font-weight:800;margin-bottom:6px}
 .newmsg{color:var(--pink);font-weight:800;min-height:1.4em;margin:6px 0 12px}
-@media (max-width:520px){ .levels{grid-template-columns:repeat(2,1fr)} .rank{font-size:84px} }
+@media (max-width:760px){ #scrSelect{padding-top:72px;align-items:flex-start} }
+@media (max-width:520px){ .levels{grid-template-columns:repeat(2,1fr)} .panel{padding:16px} .song{padding:8px 12px} .song .dot{width:34px;height:34px;font-size:18px} .song .t{font-size:17px} .songs{gap:7px;margin-bottom:12px} .levels{margin-bottom:12px} .lv{padding:7px 4px} .opts{gap:8px;margin-bottom:12px} h2{font-size:21px} .rank{font-size:84px} }
 </style>
 </head>
 <body>
 <canvas id="cv"></canvas>
 <button id="btnPause" aria-label="ひとやすみ">❚❚</button>
+<button id="btnGear" class="on" aria-label="せってい">⚙</button>
 
 <!-- タイトル -->
 <section class="scr on" id="scrTitle">
@@ -122,7 +128,6 @@ button{font-family:inherit;font-weight:800;color:var(--text);border:0;cursor:poi
 <section class="scr" id="scrSelect">
   <div class="panel">
     <div class="head"><h2 style="margin:0">きょくを えらぼう</h2><div class="stars" id="starTotal">★ 0</div></div>
-    <div class="note" id="calNote" hidden>はじめに「ずれ ちょうせい」を 1かい やろう！</div>
     <div class="songs" id="songList"></div>
     <div class="levels" id="lvList"></div>
     <div class="opts">
@@ -132,7 +137,6 @@ button{font-family:inherit;font-weight:800;color:var(--text);border:0;cursor:poi
     <div class="hint">おとが きこえないときは：おとの おおきさを あげる／マナーモードを きる</div>
     <div class="row">
       <button class="btn sub small" id="btnBack">もどる</button>
-      <button class="btn sub small" id="btnCal">ずれ ちょうせい</button>
       <button class="btn go" id="btnStart">スタート</button>
     </div>
   </div>
@@ -155,6 +159,19 @@ button{font-family:inherit;font-weight:800;color:var(--text);border:0;cursor:poi
         <button class="btn sub small" id="calAgain">もういちど</button>
         <button class="btn go" id="calOk">OK</button>
       </div>
+    </div>
+  </div>
+</section>
+
+<!-- せってい -->
+<section class="scr" id="scrSettings">
+  <div class="panel">
+    <h2>せってい</h2>
+    <div class="big" id="setOffset"></div>
+    <div class="subt">おとと タップが ずれると おもったら、もういちど はかろう</div>
+    <div class="row" style="flex-direction:column">
+      <button class="btn go" id="btnCal">ずれ ちょうせい</button>
+      <button class="btn sub small" id="btnSetBack">もどる</button>
     </div>
   </div>
 </section>
@@ -234,7 +251,7 @@ const LEVELS = [
   { name: 'おに',       need: 16 }
 ];
 const RANKS = [ ['S', 950000, 3], ['A', 900000, 2], ['B', 800000, 1], ['C', 700000, 1], ['D', 0, 0] ];
-const VERSION = 'v3';
+const VERSION = 'v4';
 const AUTO = /[?&]auto/.test(location.search); // おてほん（テスト用・記録は別の箱）
 
 /* ===== [記録] この端末の中だけに保存（外には送らない） ===== */
@@ -821,6 +838,14 @@ function drawPlay(t) {
     }
     if (l > 0) { cx.fillStyle = 'rgba(160,170,255,.16)'; cx.fillRect(x - 0.5, 0, 1, lineY); }
   }
+  // 小節の線（うすい）と 1拍ごとの線（もっとうすい）
+  const bt = G.S.beat;
+  const b0 = Math.max(0, Math.ceil(st / bt)), b1 = Math.min(G.S.totalG / 4, Math.floor((st + lineY / pps) / bt));
+  for (let k = b0; k <= b1; k++) {
+    const y = lineY - (k * bt - st) * pps;
+    if (k % 4 === 0) { cx.fillStyle = 'rgba(200,205,255,.30)'; cx.fillRect(playX, y - 1, playW, 2); }
+    else { cx.fillStyle = 'rgba(200,205,255,.10)'; cx.fillRect(playX, y - 0.5, playW, 1); }
+  }
   // 判定ライン
   const fl = G.flashLine || 0;
   cx.fillStyle = 'rgba(255,255,255,' + (0.55 + pulse * 0.3 + fl * 0.3) + ')';
@@ -1006,13 +1031,15 @@ function calShowVal() {
 
 /* ===== [画面] ===== */
 function $(id) { return document.getElementById(id); }
+let lastMenu = 'scrTitle';
 function show(id) {
   document.querySelectorAll('.scr').forEach(s => s.classList.toggle('on', s.id === id));
+  if (id === 'scrTitle' || id === 'scrSelect') lastMenu = id;
+  $('btnGear').classList.toggle('on', id === 'scrTitle' || id === 'scrSelect');
 }
 function renderSelect() {
   const total = Save.totalStars();
   $('starTotal').textContent = '★ ' + total;
-  $('calNote').hidden = Save.data.offset != null;
   const sl = $('songList'); sl.innerHTML = '';
   SONGS.forEach((s, i) => {
     const b = document.createElement('button');
@@ -1047,9 +1074,13 @@ function goFull() {
   const d = document.documentElement;
   try { if (!document.fullscreenElement && d.requestFullscreen) d.requestFullscreen().catch(() => {}); } catch (e) {}
 }
-$('btnPlay').onclick = () => { initAudio(); chime(); goFull(); renderSelect(); show('scrSelect'); };
+// はじめての時は、曲えらびの前に ずれ ちょうせい
+$('btnPlay').onclick = () => { initAudio(); chime(); goFull(); if (Save.data.offset == null && !AUTO) { calStart('scrSelect'); return; } renderSelect(); show('scrSelect'); };
 $('btnBack').onclick = () => show('scrTitle');
-$('btnCal').onclick = () => calStart('scrSelect');
+function renderSettings() { const v = Save.data.offset || 0; $('setOffset').textContent = 'いまの ずれ： ' + (v >= 0 ? '+' : '') + v.toFixed(3) + ' びょう'; }
+$('btnGear').onclick = () => { renderSettings(); show('scrSettings'); };
+$('btnSetBack').onclick = () => { if (lastMenu === 'scrSelect') renderSelect(); show(lastMenu); };
+$('btnCal').onclick = () => calStart('scrSettings');
 $('btnStart').onclick = () => {
   initAudio();
   if (Save.data.offset == null && !AUTO) { calStart('start'); return; }
@@ -1063,7 +1094,7 @@ $('scrCalib').addEventListener('pointerdown', e => { if (e.target.closest('butto
 $('calMinus').onclick = () => { Save.data.offset = Math.round(((Save.data.offset || 0) - 0.01) * 1000) / 1000; Save.save(); calShowVal(); };
 $('calPlus').onclick = () => { Save.data.offset = Math.round(((Save.data.offset || 0) + 0.01) * 1000) / 1000; Save.save(); calShowVal(); };
 $('calAgain').onclick = () => calStart(Cal.returnTo);
-$('calOk').onclick = () => { if (Cal.returnTo === 'start') startSong(); else { renderSelect(); show('scrSelect'); } };
+$('calOk').onclick = () => { if (Cal.returnTo === 'start') startSong(); else if (Cal.returnTo === 'scrSettings') { renderSettings(); show('scrSettings'); } else { renderSelect(); show('scrSelect'); } };
 $('btnPause').onclick = pauseGame;
 $('btnResume').onclick = resumeGame;
 $('btnRetry').onclick = () => { quitSong(); startSong(); };
