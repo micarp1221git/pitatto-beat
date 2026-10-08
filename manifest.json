@@ -5,11 +5,20 @@
   "start_url": "./index.html",
   "id": "./",
   "display": "fullscreen",
-  "background_color": "#0a0a24",
-  "theme_color": "#0a0a24",
+  "background_color": "#3db6ff",
+  "theme_color": "#3db6ff",
   "orientation": "any",
   "icons": [
-    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
   ],
-  "categories": ["games", "music", "kids"]
+  "categories": [
+    "games",
+    "music",
+    "kids"
+  ]
 }

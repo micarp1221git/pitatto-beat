@@ -1,9 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1b1450"/><stop offset="1" stop-color="#3a1460"/></linearGradient></defs>
-  <rect width="512" height="512" rx="110" fill="url(#g)"/>
-  <rect x="70" y="330" width="372" height="14" rx="7" fill="#fff"/>
-  <circle cx="132" cy="200" r="34" fill="#ff4d7e"/>
-  <polygon points="214,250 250,310 178,310" fill="#4da3ff"/>
-  <rect x="270" y="150" width="60" height="60" rx="8" fill="#3ddc84"/>
-  <polygon points="380,262 392,292 424,294 399,314 408,345 380,327 352,345 361,314 336,294 368,292" fill="#ffd23f"/>
+  <rect width="512" height="512" rx="110" fill="#3db6ff"/>
+  <circle cx="140" cy="140" r="40" fill="#fff"/><circle cx="190" cy="120" r="48" fill="#fff"/><circle cx="240" cy="140" r="38" fill="#fff"/>
+  <rect x="96" y="250" width="320" height="200" rx="24" fill="#1e2a52" stroke="#1f2a44" stroke-width="10"/>
+  <rect x="96" y="380" width="320" height="12" fill="#fff"/>
+  <circle cx="150" cy="320" r="24" fill="#ff4d7e" stroke="#1f2a44" stroke-width="6"/>
+  <polygon points="230,292 258,344 202,344" fill="#4da3ff" stroke="#1f2a44" stroke-width="6" stroke-linejoin="round"/>
+  <rect x="286" y="300" width="44" height="44" rx="6" fill="#3ddc84" stroke="#1f2a44" stroke-width="6"/>
+  <polygon points="372,292 381,314 404,315 386,330 392,353 372,340 352,353 358,330 340,315 363,314" fill="#ffd23f" stroke="#1f2a44" stroke-width="5" stroke-linejoin="round"/>
 </svg>
