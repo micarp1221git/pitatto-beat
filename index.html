@@ -257,7 +257,7 @@ const LEVELS = [
 ];
 // C 以上で クリア（★1）。A で ★2、S で ★3
 const RANKS = [ ['SS', 990000, 3], ['S', 950000, 3], ['A', 880000, 2], ['B', 760000, 1], ['C', 600000, 1], ['D', 0, 0] ];
-const VERSION = 'v11';
+const VERSION = 'v12';
 const RANK_COLORS = { SS: '#ff5c8a', S: '#ffc61a', A: '#ff8a3d', B: '#22c97f', C: '#3d8bff', D: '#9aa3b8' };
 const AUTO = /[?&]auto/.test(location.search); // おてほん（テスト用・記録は別の箱）
 
@@ -368,15 +368,15 @@ function click(t, accent) {
   g.gain.setValueAtTime(0.5, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.06);
   o.connect(g); g.connect(master); o.start(t); o.stop(t + 0.08);
 }
-// たたく音：手拍子のような「パン！」（おてほんの「コッ」とは別の音）
+// たたく音：スネアの「バシッ」（おてほんの「コッ」とは別の音）
 function tapSfx() {
   const t = actx.currentTime;
-  noise(master, t, 0.09, 'bandpass', 2300, 0.9, 1.2);
-  noise(master, t + 0.012, 0.06, 'bandpass', 1500, 0.5, 1.5);
+  noise(master, t, 0.16, 'bandpass', 1900, 1.0, 0.6);   // ザッ（スネアの響き線）
+  noise(master, t, 0.07, 'highpass', 5000, 0.5);        // シャッ（アタック）
   const o = actx.createOscillator(), g = actx.createGain();
-  o.type = 'triangle'; o.frequency.setValueAtTime(420, t); o.frequency.exponentialRampToValueAtTime(180, t + 0.06);
-  g.gain.setValueAtTime(0.35, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.08);
-  o.connect(g); g.connect(master); o.start(t); o.stop(t + 0.1);
+  o.type = 'triangle'; o.frequency.setValueAtTime(240, t); o.frequency.exponentialRampToValueAtTime(160, t + 0.08);
+  g.gain.setValueAtTime(0.6, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.1);
+  o.connect(g); g.connect(master); o.start(t); o.stop(t + 0.12);           // ドッ（胴の鳴り）
 }
 // カウントの音（3・2・1 は「ピッ」、GO は高い「ピーン」）
 function countBeep(dest, t, go) {
@@ -656,7 +656,7 @@ function startSong() {
   effects.length = 0;
   if (G.bus) G.bus.kill();
   G.bus = makeBus(G.S.step);
-  G.startTime = actx.currentTime + 0.4 + 3 * G.S.beat;
+  G.startTime = actx.currentTime + 0.4 + 4 * G.S.beat;
   startCount(0);
   G.state = 'play'; G.paused = false;
   show(null);
@@ -761,10 +761,11 @@ function pauseGame() {
   show('scrPause');
 }
 // 拍に合わせて 3・2・1・GO。GO の瞬間に goAt（曲の時刻）がくる
-function startCount(goAt) {
+// 4拍子：3・2・1・GO の4つを数えて、次の拍（at）から曲が始まる
+function startCount(at) {
   const b = G.S.beat;
-  G.countGo = goAt;
-  for (let k = 3; k >= 0; k--) countBeep(G.bus.out, G.startTime + goAt - k * b, k === 0);
+  G.countGo = at;
+  for (let k = 4; k >= 1; k--) countBeep(G.bus.out, G.startTime + at - k * b, k === 1);
 }
 // ひとやすみから戻るときも、いきなり始めずに カウントしてから
 async function resumeGame() {
@@ -773,7 +774,7 @@ async function resumeGame() {
   const at = G.pausedAt;
   if (G.bus) G.bus.kill();
   G.bus = makeBus(G.S.step);
-  G.startTime = actx.currentTime + 0.4 + 3 * G.S.beat - at;
+  G.startTime = actx.currentTime + 0.4 + 4 * G.S.beat - at;
   G.evIdx = G.S.ev.findIndex(e => e.t >= at - 0.001); if (G.evIdx < 0) G.evIdx = G.S.ev.length;
   G.gIdx = G.notes.findIndex(n => n.t >= at); if (G.gIdx < 0) G.gIdx = G.notes.length;
   G.gLast = -1;
@@ -1050,12 +1051,14 @@ function drawPlay(t) {
   cx.fillStyle = 'rgba(31,42,68,.35)'; cx.fillRect(0, 0, W, 7);
   cx.fillStyle = '#ff5c8a'; cx.fillRect(0, 0, W * Math.max(0, Math.min(1, st / G.S.dur)), 7);
   const cg = G.countGo, bt2 = G.S.beat;
-  if (cg != null && st > cg - 3 * bt2 - 0.25 && st < cg + bt2 * 0.8) {
-    const left = cg - st, num = left > 0 ? Math.min(3, Math.ceil(left / bt2 - 0.001)) : 0;
-    const ph = left > 0 ? 1 - (left / bt2 - Math.floor(left / bt2 - 0.001)) : (st - cg) / bt2;
+  if (cg != null && st > cg - 4 * bt2 - 0.1 && st < cg + bt2 * 0.25) {
+    // 残りの拍：4→「3」 3→「2」 2→「1」 1→「GO!」 そのあと曲の1拍目
+    const left = cg - st, beatsLeft = Math.ceil(left / bt2 - 0.001);
+    const num = beatsLeft >= 2 ? Math.min(3, beatsLeft - 1) : 0;
+    const ph = left > 0 ? 1 - (left / bt2 - Math.floor(left / bt2 - 0.001)) : 1;
     const txt = num > 0 ? String(num) : 'GO!';
     const size = Math.round(Math.min(playW * (num > 0 ? 0.4 : 0.3), 150) * (1.25 - Math.min(1, ph * 4) * 0.25));
-    cx.globalAlpha = num > 0 ? 1 : Math.max(0, 1 - ph * 1.2);
+    cx.globalAlpha = left > 0 ? 1 : Math.max(0, 1 + left / (bt2 * 0.25));
     cx.textAlign = 'center'; cx.textBaseline = 'middle';
     cx.font = '400 ' + size + 'px "Mochiy Pop One",sans-serif';
     cx.lineWidth = 10; cx.lineJoin = 'round'; cx.strokeStyle = '#1f2a44';
