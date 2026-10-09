@@ -257,7 +257,7 @@ const LEVELS = [
 ];
 // C 以上で クリア（★1）。A で ★2、S で ★3
 const RANKS = [ ['SS', 990000, 3], ['S', 950000, 3], ['A', 880000, 2], ['B', 760000, 1], ['C', 600000, 1], ['D', 0, 0] ];
-const VERSION = 'v13';
+const VERSION = 'v14';
 const RANK_COLORS = { SS: '#ff5c8a', S: '#ffc61a', A: '#ff8a3d', B: '#22c97f', C: '#3d8bff', D: '#9aa3b8' };
 const AUTO = /[?&]auto/.test(location.search); // おてほん（テスト用・記録は別の箱）
 
@@ -368,26 +368,28 @@ function click(t, accent) {
   g.gain.setValueAtTime(0.5, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.06);
   o.connect(g); g.connect(master); o.start(t); o.stop(t + 0.08);
 }
-// たたく音：レーンごとにドラムの音（左が低い・右が高い。指ドラムができる）
+// ドラムの音（伴奏も、たたいた音も同じ）。レーン＝楽器。左が低い・右が高い
 //   ●キック ▲低いタム ★スネア ■高いタム ◆ハイハット ♥シンバル
-function drumHit(lane) {
-  const t = actx.currentTime;
+function drumVoice(dest, t, lane, v, open) {
   const body = (f0, f1, dur, vol, type) => {
     const o = actx.createOscillator(), g = actx.createGain();
     o.type = type || 'sine'; o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(f1, t + dur * 0.6);
     g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
-    o.connect(g); g.connect(master); o.start(t); o.stop(t + dur + 0.02);
+    o.connect(g); g.connect(dest); o.start(t); o.stop(t + dur + 0.02);
   };
   switch (lane) {
-    case 0: body(150, 45, 0.35, 1.1); noise(master, t, 0.02, 'lowpass', 3000, 0.4); break;               // ドン
-    case 1: body(170, 95, 0.32, 0.8); noise(master, t, 0.04, 'bandpass', 900, 0.35, 0.8); break;          // ドゥン
-    case 2: noise(master, t, 0.16, 'bandpass', 1900, 1.0, 0.6); noise(master, t, 0.07, 'highpass', 5000, 0.5);
-            body(240, 160, 0.1, 0.6, 'triangle'); break;                                                       // バシッ
-    case 3: body(300, 200, 0.25, 0.75); noise(master, t, 0.04, 'bandpass', 1400, 0.35, 0.8); break;         // トン
-    case 4: noise(master, t, 0.06, 'highpass', 8000, 0.75); break;                                           // チッ
-    default: noise(master, t, 1.1, 'highpass', 5000, 0.5); noise(master, t, 0.5, 'bandpass', 9000, 0.35, 0.7); // シャーン
+    case 0: body(150, 45, 0.35, 1.1 * v); noise(dest, t, 0.02, 'lowpass', 3000, 0.4 * v); break;                // ドン
+    case 1: body(170, 95, 0.32, 0.8 * v); noise(dest, t, 0.04, 'bandpass', 900, 0.35 * v, 0.8); break;           // ドゥン
+    case 2: noise(dest, t, 0.16, 'bandpass', 1900, 1.0 * v, 0.6); noise(dest, t, 0.07, 'highpass', 5000, 0.5 * v);
+            body(240, 160, 0.1, 0.6 * v, 'triangle'); break;                                                        // バシッ
+    case 3: body(300, 200, 0.25, 0.75 * v); noise(dest, t, 0.04, 'bandpass', 1400, 0.35 * v, 0.8); break;          // トン
+    case 4: noise(dest, t, open ? 0.17 : 0.05, 'highpass', open ? 7000 : 8000, 0.75 * v); break;                  // チッ／チー
+    default: noise(dest, t, 1.1, 'highpass', 5000, 0.5 * v); noise(dest, t, 0.5, 'bandpass', 9000, 0.35 * v, 0.7);  // シャーン
   }
 }
+// 自分でたたいたときの音の大きさ（ハイハットは控えめ）
+const HIT_VOL = [1, 0.9, 0.9, 0.9, 0.45, 0.75];
+function drumHit(lane, note) { drumVoice(master, actx.currentTime, lane, HIT_VOL[lane] * (note ? 1 : 0.8), note ? note.open : false); }
 // カウントの音（3・2・1 は「ピッ」、GO は高い「ピーン」）
 function countBeep(dest, t, go) {
   const o = actx.createOscillator(), g = actx.createGain();
@@ -404,14 +406,16 @@ function makeBus(step) {
   const fb = actx.createGain(); fb.gain.value = 0.3;
   const wet = actx.createGain(); wet.gain.value = 0.22;
   lead.connect(dl); dl.connect(fb); fb.connect(dl); dl.connect(wet); wet.connect(out);
+  const ghost = actx.createGain(); ghost.gain.value = 0.3; ghost.connect(out); // おてほんの ドラム（小さめ）
   return {
-    out, lead,
+    out, lead, ghost,
     kill() { try { out.gain.cancelScheduledValues(0); out.gain.setValueAtTime(0, actx.currentTime); } catch (e) {} setTimeout(() => { try { out.disconnect(); } catch (e) {} }, 400); }
   };
 }
 function fire(B, e, t, song) {
   const a = e.a;
   switch (e.f) {
+    case 'drum':  drumVoice(B.out, t, a.lane, a.v, a.open); break;
     case 'kick':  kick(B.out, t, 0.95); break;
     case 'snare': noise(B.out, t, 0.18, 'bandpass', 1800, a || 0.5, 0.8); tone(B.out, t, 57, 0.06, 'triangle', 0.18, 2000); break;
     case 'hat':   noise(B.out, t, 0.035, 'highpass', 8000, a); break;
@@ -490,7 +494,7 @@ function buildSong(song) {
   };
   const ending = ENDING.map(([s, d]) => ({ s: s + 16, d, mv: Math.round((R() * 2 - 1) * 2) }));
 
-  const ev = [], mel = [], secs = [], motifs = {};
+  const ev = [], mel = [], secs = [], motifs = {}, drums = [];
   const add = (g, f, a) => ev.push({ t: g * step, f, a });
   let bar = 0;
   const lastBreak = song.form.map(f => f.replace(/\d+/, '')).lastIndexOf('break'), seen = {};
@@ -501,21 +505,37 @@ function buildSong(song) {
     seen[type] = 1;
     const tr = boost === 2 ? 2 : 0;
     secs.push({ type, g0, g1: g0 + nb * 16, boost });
-    if (type !== 'intro') add(g0, 'crash', 0.2);
-    if (boost === 2) for (let b = 4; b < nb; b += 4) add(g0 + b * 16, 'crash', 0.18);
+    // ドラムを1つ足す（伴奏の音＋譜面のもと）
+    const addD = (g, lane, tag, v, open, b) => {
+      const e = { t: g * step, f: 'drum', a: { lane, v, open: !!open } };
+      ev.push(e); drums.push({ g, lane, tag, v, open: !!open, sec: type, s: g % 16, b, boost, e });
+    };
     for (let b = 0; b < nb; b++) {
       const gb = g0 + b * 16, ch = chordAt(b), last = b === nb - 1;
       const bassRoot = inRange(song.key - 12 + ch[0], 33, 44) + tr;
       const padMs = chordPcs(ch).map(pc => inRange(song.key + pc, 52, 66) + tr);
-      // ドラム
+      const fill = b % 4 === 3 && (type === 'verse' || type === 'chorus');   // 4小節ごとの おかず
+      // ♥シンバル
+      if (b === 0 && type !== 'intro') addD(gb, 5, type === 'break' ? 'crash_long' : 'crash', 0.4, false, b);
+      else if (type === 'chorus' && b % (boost === 2 ? 2 : 4) === 0) addD(gb, 5, 'crash', 0.35, false, b);
+      if (type === 'outro' && last) addD(gb, 5, 'crash_end', 0.45, false, b);
+      // ●キック
       const kickOn = type === 'verse' || type === 'build' || type === 'chorus' || (type === 'intro' && b >= 2) || (type === 'outro' && !last);
-      if (kickOn) for (let s = 0; s < 16; s += 4) add(gb + s, 'kick');
-      if (type === 'outro' && last) { add(gb, 'kick'); add(gb, 'crash', 0.25); }
-      if (type === 'verse' || type === 'chorus' || (type === 'build' && !last)) { add(gb + 4, 'snare'); add(gb + 12, 'snare'); }
-      if (type === 'build' && last) for (let s = 0; s < 16; s++) add(gb + s, 'snare', 0.15 + s * 0.025);
-      if (type === 'break' && last) for (let s = 8; s < 16; s += 2) add(gb + s, 'snare', 0.2 + s * 0.015);
-      if (type === 'chorus') for (let s = 0; s < 16; s++) add(gb + s, s % 4 === 2 ? 'ohat' : 'hat', s % 2 ? 0.07 : 0.11);
-      else if (type !== 'outro' || !last) for (let s = 2; s < 16; s += 4) add(gb + s, 'ohat', type === 'break' ? 0.05 : 0.09);
+      if (kickOn) for (let q = 0; q < 16; q += 4) addD(gb + q, 0, q % 8 === 0 ? 'k_down' : 'k_beat', 0.85, false, b);
+      if (type === 'outro' && last) addD(gb, 0, 'k_down', 0.85, false, b);
+      if (!fill && (type === 'chorus' || (type === 'verse' && boost >= 1)) && b % 2 === 1) addD(gb + (type === 'chorus' ? 14 : 10), 0, 'k_sync', 0.75, false, b);
+      // ★スネア
+      if (type === 'verse' || type === 'chorus' || (type === 'build' && !last)) { addD(gb + 4, 2, 's_back', 0.55, false, b); if (!fill) addD(gb + 12, 2, 's_back', 0.55, false, b); }
+      if (type === 'build' && !last) addD(gb + 10, 2, 's_build', 0.4, false, b);
+      if (type === 'build' && last) for (let q = 0; q < 16; q++) addD(gb + q, 2, 's_roll', 0.25 + q * 0.02, false, b);
+      if (type === 'break' && last) for (let q = 8; q < 16; q += 2) addD(gb + q, 2, 's_roll', 0.3 + q * 0.015, false, b);
+      if (type === 'intro' && last) { addD(gb + 12, 2, 's_roll', 0.45, false, b); addD(gb + 14, 2, 's_roll', 0.5, false, b); }
+      // ■▲タム（おかず：高いタム→低いタム）
+      if (!fill && b % 4 === 1 && (type === 'verse' || type === 'chorus')) { addD(gb + 14, 3, 'tom_s', 0.7, false, b); addD(gb + 15, 1, 'tom_s', 0.7, false, b); }
+      if (fill) { addD(gb + 12, 3, 'tom', 0.8, false, b); addD(gb + 13, 3, 'tom', 0.75, false, b); addD(gb + 14, 1, 'tom', 0.8, false, b); addD(gb + 15, 1, 'tom', 0.75, false, b); }
+      // ◆ハイハット
+      if (type === 'chorus') for (let q = 0; q < 16; q += 2) { if (fill && q >= 12) continue; const off = q % 4 === 2; addD(gb + q, 4, off ? 'h_off' : 'h_8', off ? 0.14 : 0.1, off, b); }
+      else if (!(type === 'outro' && last)) for (let q = 2; q < 16; q += 4) { if (fill && q >= 12) continue; addD(gb + q, 4, 'h_off', type === 'break' ? 0.08 : 0.13, true, b); }
       // ベース
       if (type === 'chorus') for (let s = 0; s < 16; s += 2) add(gb + s, 'bass', { m: bassRoot + (s % 4 ? 12 : 0), d: step * 1.6 });
       else if (type === 'verse' || type === 'build' || (type === 'intro' && b >= 2) || (type === 'outro' && !last)) for (let s = 2; s < 16; s += 4) add(gb + s, 'bass', { m: bassRoot, d: step * 1.6 });
@@ -545,102 +565,71 @@ function buildSong(song) {
   });
   ev.sort((a, b) => a.t - b.t);
   mel.sort((a, b) => a.g - b.g);
-  const S = { song, step, beat: step * 4, ev, mel, secs, totalG: bar * 16, dur: bar * 16 * step };
+  drums.sort((a, b) => a.g - b.g);
+  const S = { song, step, beat: step * 4, ev, mel, drums, secs, totalG: bar * 16, dur: bar * 16 * step };
   songCache[song.id] = S;
   return S;
 }
 
-/* ===== [譜面] 曲のメロディとドラムから、むずかしさ別に作る ===== */
-function buildChart(S, lv) {
-  const R = rng(S.song.seed * 31 + lv * 7 + 1);
-  const c = [];
-  const holdMin = [999, 8, 4, 3][lv];
-  const rollBars = [];
-  if (lv >= 2) S.secs.forEach(s => { if (s.type === 'build') rollBars.push([s.g1 - 16, s.g1]); });
-  const inRoll = g => rollBars.some(r => g >= r[0] && g < r[1]);
-  S.mel.forEach(n => {
-    // かんたん：表拍だけ（サビは1拍ごと、それ以外は2拍ごと）／ふつう：サビだけ裏拍あり
-    // 速い曲（BPM 145〜）は、そのぶん間をあける
-    const fast = S.song.bpm >= 145;
-    if (lv === 0 && n.g % (n.type === 'chorus' && !fast ? 4 : 8) !== 0) return;
-    if (lv === 1 && n.g % (n.type === 'chorus' && !fast ? 2 : 4) !== 0) return;
-    if (lv <= 1 && n.type === 'build') { // サビ前はサビより増やさない。最後の1小節で少しだけ詰める
-      const sec = S.secs.find(q => n.g >= q.g0 && n.g < q.g1), lastBar = n.g >= sec.g1 - 16;
-      if (n.g % ((lv === 0 ? 8 : 4) / (lastBar ? 2 : 1)) !== 0) return;
-      if (lv === 0 && n.g % 4 !== 0) return;
-    }
-    if (inRoll(n.g)) return;
-    const hm = lv === 1 && n.boost === 2 ? 6 : holdMin;
-    c.push({ g: n.g, len: n.d >= hm ? n.d : 0, p: n.pitch, sec: n.type, boost: n.boost });
-  });
-  S.secs.forEach(s => {
-    if (s.type === 'intro' || s.type === 'outro') {
-      const from = s.type === 'intro' ? s.g0 + 32 : s.g0, to = s.type === 'outro' ? s.g1 - 16 : s.g1;
-      for (let g = from; g < to; g++) {
-        const k = g - s.g0;
-        const on = lv === 0 ? k % 8 === 0 : lv === 1 ? k % 4 === 0 : lv === 2 ? (k % 4 === 0 || k % 16 === 10) : k % 2 === 0;
-        if (on) c.push({ g, len: 0, p: null, sec: s.type });
-      }
-      if (s.type === 'outro') c.push({ g: s.g1 - 16, len: 0, p: null, sec: 'end' });
-    }
-    if (s.type === 'break' && lv >= 2) for (let g = s.g1 - 8; g < s.g1; g += 2) c.push({ g, len: 0, p: null, sec: 'roll' });
-    if (s.type === 'chorus' && lv === 3) {
-      const has = {}; S.mel.forEach(n => { has[n.g] = 1; });
-      for (let g = s.g0; g < s.g1; g += 2) if (!has[g] && !has[g - 1] && !has[g + 1]) c.push({ g, len: 0, p: null, sec: 'fill', boost: s.boost });
-      // おにのラストサビ：2小節ごとに 最後の1拍を16分で
-      if (s.boost === 2) for (let g = s.g0 + 16; g < s.g1; g += 32) for (let k = 12; k < 16; k++) if (!has[g + k]) c.push({ g: g + k, len: 0, p: null, sec: 'roll', boost: 2 });
-    }
-  });
-  rollBars.forEach(r => { for (let g = r[0]; g < r[1]; g += (lv === 2 ? 2 : 1)) c.push({ g, len: 0, p: null, sec: 'roll' }); });
-  c.sort((a, b) => a.g - b.g || (a.p == null) - (b.p == null));
-
-  const minGap = [4, 2, 1, 1][lv];
-  const notes = [], busy = new Array(LANES).fill(-1);
-  let prevLane = 1, prevP = null, prevG = -99, zig = 0, zdir = 1, holdBlock = -1;
-  // この譜面で使う音の高さを、数がそろうように6本へ振り分ける
-  const ps = c.filter(k => k.p != null).map(k => k.p).sort((x, y) => x - y);
-  const laneOfPitch = pt => {
-    let lo = 0, eq = 0; for (const v of ps) { if (v < pt) lo++; else if (v === pt) eq++; }
-    return Math.min(LANES - 1, Math.floor((lo + eq * R()) / ps.length * LANES));
-  };
-  const free = (l, g) => busy[l] < g;
-  const nearestFree = (l, g) => { for (let d = 0; d < LANES; d++) { if (l + d < LANES && free(l + d, g)) return l + d; if (l - d >= 0 && free(l - d, g)) return l - d; } return -1; };
-  for (const k of c) {
-    if (k.g === prevG) continue;
-    if (k.g - prevG < minGap) continue;
-    if (lv <= 1 && k.g < holdBlock) continue;
-    let lane;
-    if (k.sec === 'roll') { lane = zig; zig += zdir; if (zig > LANES - 1 || zig < 0) { zdir = -zdir; zig += zdir * 2; } }
-    else if (k.p != null) {
-      // メロディの高さ＝レーン（低い音は左、高い音は右）。6本ぜんぶに散らばる
-      lane = laneOfPitch(k.p);
-      if (lane === prevLane && k.g - prevG < (lv <= 1 ? 4 : 2)) lane = prevLane + (R() < 0.5 ? 1 : -1);
-      if (lane > LANES - 1) lane = LANES - 2; if (lane < 0) lane = 1;
-    } else {
-      lane = Math.floor(R() * LANES); if (lane === prevLane) lane = (lane + 1 + Math.floor(R() * (LANES - 1))) % LANES;
-    }
-    lane = nearestFree(lane, k.g);
-    if (lane < 0) continue;
-    const n = { t: k.g * S.step, lane, end: 0, g: k.g };
-    if (k.len) { n.end = (k.g + k.len) * S.step - S.step * 0.5; busy[lane] = k.g + k.len; if (lv <= 1) holdBlock = k.g + k.len; }
-    else busy[lane] = k.g;
-    notes.push(n);
-    // 同時押し：サビの頭から。2回目・ラストサビで増える
-    const B = k.boost || 0;
-    const dbl = (k.sec === 'chorus' && (lv === 0 ? false
-                                     : lv === 1 ? (B >= 1 && k.g % 16 === 0) || (B === 2 && k.g % 8 === 0)
-                                     : lv === 2 ? k.g % (B === 2 ? 8 : 16) === 0
-                                     : k.g % 4 === 0))
-             || (k.sec === 'verse' && lv >= 2 && B >= 1 && k.g % 16 === 0);
-    if (dbl) {
-      let l2 = -1;
-      [3, 2, 4, 1, 5].map(d => (lane + d) % LANES).some(x => { if (free(x, k.g) && Math.abs(x - lane) >= 1) { l2 = x; return true; } return false; });
-      if (l2 >= 0) { notes.push({ t: n.t, lane: l2, end: 0, g: k.g }); busy[l2] = k.g; }
-    }
-    prevLane = lane; if (k.p != null) prevP = k.p; prevG = k.g;
+/* ===== [譜面] 曲のドラムパートから作る。譜面どおりに たたくと 曲のドラムになる ===== */
+// むずかしさごとに、どのドラムを たたくか（役割タグで えらぶ）
+function wantDrum(d, lv, fast) {
+  const T = d.tag, sec = d.sec, s = d.s, ch = sec === 'chorus';
+  if (T === 'crash' || T === 'crash_end') return {};
+  if (T === 'crash_long') return lv >= 1 ? { len: 16 } : {};
+  if (lv === 0) {          // かんたん：1拍に1つまで。ドン・バシ・チッ・シャーン、おかずのタム
+    if (T === 'k_down') return s === 0 ? {} : null;
+    if (T === 's_back') return s === 12 || (ch && !fast && s === 4) ? {} : null;
+    if (T === 'h_8') return ch && !fast && s === 8 ? {} : null;
+    if (T === 'tom') return (d.b % 8 === 3 ? s === 12 : s === 14) ? {} : null;
+    if (T === 's_roll') return s % 4 === 0 ? {} : null;
+    return null;
   }
+  if (lv === 1) {          // ふつう：ドン・バシ に ハイハットと タムが まざる
+    if (T === 'k_down') return s === 0 || ch ? {} : null;
+    if (T === 's_back') return {};
+    if (T === 'h_off') return fast ? s === 14 : (s === 6 || s === 14);
+    if (T === 'k_sync') return ch && !fast ? {} : null;
+    if (T === 'tom' || T === 's_roll' || T === 's_build' || T === 'tom_s') return s % 2 === 0 ? {} : null;
+    return null;
+  }
+  if (lv === 2) {          // むずかしい：キックとスネアに、ハイハットとタムの細かいところ
+    if (T === 'k_down' || T === 's_back' || T === 'tom' || T === 'tom_s') return {};
+    if (T === 'k_sync' || T === 's_build') return !fast ? {} : null;
+    if (T === 'k_beat') return ch && !fast ? {} : null;
+    if (T === 'h_off') return (ch && !fast) || s === 6 || s === 14 ? {} : null;
+    if (T === 's_roll') return s % 2 === 0 ? {} : null;
+    return null;
+  }
+  if (T === 'h_8') return ch && d.boost === 2 && !fast ? {} : null;   // おに：ほぼ ぜんぶ（細かいハイハットはラストサビ）
+  if (fast && T === 'h_off') return ch || s === 6 || s === 14 ? {} : null;   // 速い曲は ハイハットを少し間引く
+  if (fast && T === 's_roll') return s % 2 === 0 ? {} : null;
+  return {};
+}
+function buildChart(S, lv) {
+  const fast = S.song.bpm >= 145;
+  const PRI = [2, 3, 1, 3, 4, 0];   // 同時に出すときの優先：シンバル→スネア→キック→タム→ハイハット
+  const maxN = lv === 0 ? 1 : 2, minGap = [4, 2, 1, 1][lv];
+  const byG = new Map();
+  S.drums.forEach(d => {
+    const w = wantDrum(d, lv, fast); if (!w) return;
+    if (!byG.has(d.g)) byG.set(d.g, []);
+    byG.get(d.g).push({ d, len: w.len || 0 });
+  });
+  const notes = [], holdUntil = new Array(LANES).fill(-1);
+  let lastG = -99;
+  Array.from(byG.keys()).sort((a, b) => a - b).forEach(g => {
+    if (g - lastG < minGap) return;
+    const arr = byG.get(g).filter(x => holdUntil[x.d.lane] < g).sort((a, b) => PRI[a.d.lane] - PRI[b.d.lane]).slice(0, maxN);
+    if (!arr.length) return;
+    arr.forEach(x => {
+      const n = { t: g * S.step, lane: x.d.lane, end: 0, g, v: x.d.v, open: x.d.open, ev: x.d.e };
+      if (x.len) { n.end = (g + x.len) * S.step - S.step * 0.5; holdUntil[x.d.lane] = g + x.len; }
+      notes.push(n);
+    });
+    lastG = g;
+  });
   notes.forEach(n => { n.judged = null; n.holding = false; n.tailDone = false; });
-  notes.sort((a, b) => a.t - b.t);
   return notes;
 }
 
@@ -659,6 +648,8 @@ function startSong() {
   const song = SONGS[G.songIdx];
   G.S = buildSong(song);
   G.notes = buildChart(G.S, G.lv);
+  // ドラムの おとが ONなら、譜面のドラムは 自分で たたいて鳴らす
+  G.mute = !AUTO && Save.data.tapSound ? new Set(G.notes.map(n => n.ev)) : null;
   G.lo = 0; G.evIdx = 0; G.gIdx = 0; G.gLast = -1;
   G.cnt = { p: 0, n: 0, o: 0, m: 0 }; G.combo = 0; G.maxCombo = 0; G.units = 0; G.fast = 0; G.slow = 0;
   G.total = G.notes.reduce((s, n) => s + (n.end ? 2 : 1), 0);
@@ -677,21 +668,10 @@ function scheduler() {
   const ev = G.S.ev, horizon = actx.currentTime + 0.2;
   while (G.evIdx < ev.length && G.startTime + ev[G.evIdx].t < horizon) {
     const e = ev[G.evIdx++], t = G.startTime + e.t;
-    if (t >= actx.currentTime - 0.01) fire(G.bus, e, Math.max(t, actx.currentTime), G.S.song);
+    if (t < actx.currentTime - 0.01) continue;
+    if (G.mute && G.mute.has(e)) { if (Save.data.guide) fire({ out: G.bus.ghost, lead: G.bus.lead }, e, Math.max(t, actx.currentTime), G.S.song); }
+    else fire(G.bus, e, Math.max(t, actx.currentTime), G.S.song);
   }
-  // おてほんの おと：音符を たたく ちょうどの時に「コッ」
-  const ns = G.notes;
-  while (G.gIdx < ns.length && G.startTime + ns[G.gIdx].t < horizon) {
-    const n = ns[G.gIdx++], t = G.startTime + n.t;
-    if (Save.data.guide && n.t !== G.gLast && t >= actx.currentTime - 0.01) guideTick(G.bus.out, Math.max(t, actx.currentTime));
-    G.gLast = n.t;
-  }
-}
-function guideTick(dest, t) {
-  const o = actx.createOscillator(), g = actx.createGain();
-  o.type = 'sine'; o.frequency.setValueAtTime(1500, t); o.frequency.exponentialRampToValueAtTime(900, t + 0.04);
-  g.gain.setValueAtTime(0.45, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.07);
-  o.connect(g); g.connect(dest); o.start(t); o.stop(t + 0.08);
 }
 setInterval(scheduler, 25);
 
@@ -711,7 +691,6 @@ function addJudge(kind, dt, n, isTail) {
 function press(lane, e) {
   if (G.state !== 'play' || G.paused) return;
   G.press[lane]++; G.flash[lane] = 1;
-  if (Save.data.tapSound) drumHit(lane);
   if (AUTO) return;
   const t = eventAudioTime(e) - G.startTime - offset();
   let target = null;
@@ -721,6 +700,7 @@ function press(lane, e) {
     if (n.lane !== lane || n.judged) continue;
     if (Math.abs(t - n.t) <= JUDGE.o) { target = n; break; }
   }
+  if (Save.data.tapSound) drumHit(lane, target);
   if (!target) return;
   const dt = t - target.t, ad = Math.abs(dt);
   const kind = ad <= JUDGE.p ? 'p' : ad <= JUDGE.n ? 'n' : 'o';
