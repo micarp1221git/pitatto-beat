@@ -254,8 +254,9 @@ const LEVELS = [
   { name: 'おに',       need: 8  }
 ];
 // C 以上で クリア（★1）。A で ★2、S で ★3
-const RANKS = [ ['S', 950000, 3], ['A', 880000, 2], ['B', 760000, 1], ['C', 600000, 1], ['D', 0, 0] ];
-const VERSION = 'v8';
+const RANKS = [ ['SS', 990000, 3], ['S', 950000, 3], ['A', 880000, 2], ['B', 760000, 1], ['C', 600000, 1], ['D', 0, 0] ];
+const VERSION = 'v10';
+const RANK_COLORS = { SS: '#ff5c8a', S: '#ffc61a', A: '#ff8a3d', B: '#22c97f', C: '#3d8bff', D: '#9aa3b8' };
 const AUTO = /[?&]auto/.test(location.search); // おてほん（テスト用・記録は別の箱）
 
 /* ===== [記録] この端末の中だけに保存（外には送らない） ===== */
@@ -631,7 +632,7 @@ function startSong() {
   G.lo = 0; G.evIdx = 0; G.gIdx = 0; G.gLast = -1;
   G.cnt = { p: 0, n: 0, o: 0, m: 0 }; G.combo = 0; G.maxCombo = 0; G.units = 0; G.fast = 0; G.slow = 0;
   G.total = G.notes.reduce((s, n) => s + (n.end ? 2 : 1), 0);
-  G.press = [0, 0, 0, 0]; G.holdNote = [null, null, null, null]; G.judgeDisp = null; G.banner = null;
+  G.press = [0, 0, 0, 0]; G.holdNote = [null, null, null, null]; G.judgeDisp = null; G.banner = null; G.rankShown = null;
   effects.length = 0;
   if (G.bus) G.bus.kill();
   G.bus = makeBus(G.S.step);
@@ -766,7 +767,7 @@ function finishSong() {
   const after = Save.totalStars();
   // 画面
   $('resSong').textContent = song.title + ' ／ ' + LEVELS[G.lv].name;
-  $('resRank').textContent = rk[0];
+  $('resRank').textContent = rk[0]; $('resRank').style.color = RANK_COLORS[rk[0]];
   $('resScore').textContent = score.toLocaleString();
   $('cP').textContent = G.cnt.p; $('cN').textContent = G.cnt.n; $('cO').textContent = G.cnt.o; $('cM').textContent = G.cnt.m;
   $('resCombo').innerHTML = (fc ? 'フルコンボ！ ' : '') + 'さいだい ' + G.maxCombo + ' コンボ<br>はやい ' + G.fast + ' ／ おそい ' + G.slow;
@@ -796,24 +797,26 @@ function shapePath(c, shape, x, y, r) {
   else if (shape === 'square') { const s = r * 0.82; c.rect(x - s, y - s, s * 2, s * 2); }
   else { for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + i * Math.PI / 5, rr = i % 2 ? r * 0.45 : r * 1.05; c.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr); } c.closePath(); }
 }
+// ノーツは まるい玉（白いふち＋色＋まんなかに形）
 function makeSprites() {
   sprites.length = 0;
-  noteH = Math.max(20, Math.min(40, laneW * 0.28));
-  const w = laneW * 0.86, pad = 14;
+  noteH = Math.max(34, Math.min(78, laneW * 0.6));
+  const D = noteH, pad = 12, size = D + pad * 2, r = D / 2, cxs = size / 2;
   for (let l = 0; l < LANES; l++) {
     const s = document.createElement('canvas');
-    s.width = (w + pad * 2) * DPR; s.height = (noteH + pad * 2) * DPR;
+    s.width = size * DPR; s.height = size * DPR;
     const c = s.getContext('2d'); c.scale(DPR, DPR);
     const col = LANE_INFO[l].color;
-    c.shadowColor = col; c.shadowBlur = 14;
-    const g = c.createLinearGradient(0, pad, 0, pad + noteH);
-    g.addColorStop(0, '#ffffff'); g.addColorStop(0.25, col); g.addColorStop(1, col);
-    c.fillStyle = g;
-    roundRect(c, pad, pad, w, noteH, noteH / 2); c.fill();
+    c.shadowColor = col; c.shadowBlur = 12;
+    c.beginPath(); c.arc(cxs, cxs, r, 0, Math.PI * 2); c.fillStyle = '#1f2a44'; c.fill();
     c.shadowBlur = 0;
-    c.fillStyle = 'rgba(255,255,255,.95)';
-    shapePath(c, LANE_INFO[l].shape, pad + w / 2, pad + noteH / 2, noteH * 0.3); c.fill();
-    sprites.push({ img: s, w: w + pad * 2, h: noteH + pad * 2 });
+    c.beginPath(); c.arc(cxs, cxs, r - 3, 0, Math.PI * 2); c.fillStyle = '#ffffff'; c.fill();
+    const g = c.createRadialGradient(cxs - r * 0.3, cxs - r * 0.35, r * 0.1, cxs, cxs, r * 0.8);
+    g.addColorStop(0, '#ffffff'); g.addColorStop(0.35, col); g.addColorStop(1, col);
+    c.beginPath(); c.arc(cxs, cxs, r * 0.8, 0, Math.PI * 2); c.fillStyle = g; c.fill();
+    c.fillStyle = '#ffffff'; c.strokeStyle = '#1f2a44'; c.lineWidth = 2.5; c.lineJoin = 'round';
+    shapePath(c, LANE_INFO[l].shape, cxs, cxs + (LANE_INFO[l].shape === 'triangle' ? r * 0.06 : 0), r * 0.38); c.fill(); c.stroke();
+    sprites.push({ img: s, w: size, h: size });
   }
 }
 function roundRect(c, x, y, w, h, r) { c.beginPath(); c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r); c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath(); }
@@ -905,11 +908,29 @@ function drawPlay(t) {
   cx.globalCompositeOperation = 'source-over';
   // パッド
   for (let l = 0; l < LANES; l++) {
-    const x = playX + laneW * (l + 0.5), y = lineY + (H - lineY) * 0.48, r = Math.min(laneW * 0.26, (H - lineY) * 0.32);
+    const narrow = playX < 130;
+    const x = playX + laneW * (l + 0.5), y = lineY + (H - lineY) * (narrow ? 0.38 : 0.48), r = Math.min(laneW * 0.26, (H - lineY) * (narrow ? 0.26 : 0.32));
     const on = G.press[l] > 0 || G.flash[l] > 0.5;
     cx.fillStyle = on ? LANE_INFO[l].color : hexA(LANE_INFO[l].color, 0.28);
     shapePath(cx, LANE_INFO[l].shape, x, y, r * (on ? 1.08 : 1)); cx.fill();
     cx.lineWidth = 3; cx.strokeStyle = hexA(LANE_INFO[l].color, 0.9); cx.stroke();
+  }
+  // 同時押しの線（同じタイミングの玉どうしを つなぐ）
+  for (let i = G.lo; i < G.notes.length - 1; i++) {
+    const a = G.notes[i];
+    const y = lineY - (a.t - st) * pps;
+    if (y < -noteH * 3) break;
+    let j = i + 1;
+    while (j < G.notes.length && G.notes[j].t === a.t) j++;
+    if (j - i < 2) continue;
+    const grp = G.notes.slice(i, j).filter(n => !n.judged);
+    if (grp.length >= 2) {
+      const xs = grp.map(n => playX + laneW * (n.lane + 0.5));
+      const x0 = Math.min.apply(null, xs), x1 = Math.max.apply(null, xs);
+      cx.fillStyle = '#1f2a44'; cx.fillRect(x0, y - 6, x1 - x0, 12);
+      cx.fillStyle = '#ffffff'; cx.fillRect(x0, y - 3.5, x1 - x0, 7);
+    }
+    i = j - 1;
   }
   // ノーツ
   for (let i = G.lo; i < G.notes.length; i++) {
@@ -920,10 +941,12 @@ function drawPlay(t) {
     if (n.end && !n.tailDone) {
       const yT = lineY - (n.end - st) * pps;
       const yh = n.holding ? lineY : yH;
-      const bw = laneW * 0.5;
-      cx.fillStyle = hexA(LANE_INFO[n.lane].color, n.judged === 'm' ? 0.18 : n.holding ? 0.75 : 0.45);
+      const bw = noteH * 0.62;
+      cx.fillStyle = '#1f2a44'; cx.fillRect(xC - bw / 2 - 3, Math.min(yT, yh), bw + 6, Math.abs(yh - yT));
+      cx.fillStyle = hexA(LANE_INFO[n.lane].color, n.judged === 'm' ? 0.3 : n.holding ? 1 : 0.8);
       cx.fillRect(xC - bw / 2, Math.min(yT, yh), bw, Math.abs(yh - yT));
-      cx.drawImage(sp.img, xC - sp.w / 2, yT - sp.h / 2, sp.w, sp.h * 0.7);
+      const ts = 0.7;
+      cx.drawImage(sp.img, xC - sp.w * ts / 2, yT - sp.h * ts / 2, sp.w * ts, sp.h * ts);
       if (n.holding) {
         if (Math.random() < 0.5) effects.push({ type: 'part', x: xC + (Math.random() - 0.5) * laneW * 0.5, y: lineY, vx: (Math.random() - 0.5) * 80, vy: -150 - Math.random() * 200, t0: now(), life: 0.4, col: LANE_INFO[n.lane].color, size: 2.5 });
         continue;
@@ -970,17 +993,45 @@ function drawPlay(t) {
   cx.textAlign = 'left'; cx.textBaseline = 'top';
   cx.lineJoin = 'round';
   cx.font = '400 26px "Mochiy Pop One",sans-serif'; cx.lineWidth = 6; cx.strokeStyle = '#1f2a44'; cx.fillStyle = '#fff';
-  const scTxt = Math.round(1e6 * G.units / G.total).toLocaleString();
-  cx.strokeText(scTxt, 14, 16); cx.fillText(scTxt, 14, 16);
   cx.font = '800 15px "M PLUS 1p",sans-serif'; cx.lineWidth = 4;
   const ttl = SONGS[G.songIdx].title + ' ／ ' + LEVELS[G.lv].name;
-  cx.strokeText(ttl, 14, 50); cx.fillText(ttl, 14, 50);
+  cx.strokeText(ttl, 14, 18); cx.fillText(ttl, 14, 18);
+  drawRankCard();
   cx.fillStyle = 'rgba(31,42,68,.35)'; cx.fillRect(0, 0, W, 7);
   cx.fillStyle = '#ff5c8a'; cx.fillRect(0, 0, W * Math.max(0, Math.min(1, st / G.S.dur)), 7);
   if (st < 0) {
     cx.textAlign = 'center'; cx.textBaseline = 'middle';
     cx.font = '400 ' + Math.round(Math.min(W * 0.08, 64)) + 'px "Mochiy Pop One",sans-serif'; cx.fillStyle = '#fff';
     cx.fillText(st < -0.8 ? 'よーい…' : 'スタート！', cxm, H * 0.4);
+  }
+}
+// 右下の札：いまの点数と、このまま続けたら何ランクか
+function rankOf(score) { return RANKS.find(r => score >= r[1])[0]; }
+function drawRankCard() {
+  const judged = G.cnt.p + G.cnt.n + G.cnt.o + G.cnt.m;
+  const score = Math.round(1e6 * G.units / G.total);
+  const rk = judged ? rankOf(1e6 * G.units / judged) : '-';
+  if (rk !== G.rankShown) { G.rankShown = rk; G.rankT0 = now(); }
+  const wide = playX >= 130;
+  const cw = wide ? Math.min(playX - 28, 190) : 128, ch = wide ? 92 : 50;
+  const x = W - cw - (wide ? 14 : 8), y = H - ch - (wide ? 14 : 6);
+  cx.fillStyle = '#ffffff'; cx.strokeStyle = '#1f2a44'; cx.lineWidth = 3;
+  roundRect(cx, x, y, cw, ch, 14); cx.fill(); cx.stroke();
+  const k = Math.min(1, (now() - (G.rankT0 || 0)) * 5), sc = 1 + (1 - k) * 0.5;
+  const rs = wide ? 46 : 30;
+  cx.save();
+  cx.translate(x + (wide ? 42 : 26), y + ch / 2 + 2); cx.scale(sc, sc);
+  cx.textAlign = 'center'; cx.textBaseline = 'middle';
+  cx.font = '400 ' + (rk === 'SS' ? rs * 0.72 : rs) + 'px "Mochiy Pop One",sans-serif';
+  cx.lineWidth = 5; cx.lineJoin = 'round'; cx.strokeStyle = '#1f2a44'; cx.fillStyle = RANK_COLORS[rk] || '#9aa3b8';
+  cx.strokeText(rk, 0, 0); cx.fillText(rk, 0, 0);
+  cx.restore();
+  cx.textAlign = 'right'; cx.fillStyle = '#1f2a44';
+  if (wide) {
+    cx.textBaseline = 'top'; cx.font = '800 13px "M PLUS 1p",sans-serif'; cx.fillText('ランク ／ てんすう', x + cw - 12, y + 14);
+    cx.textBaseline = 'bottom'; cx.font = '400 ' + (cw > 170 ? 19 : 16) + 'px "Mochiy Pop One",sans-serif'; cx.fillText(score.toLocaleString(), x + cw - 12, y + ch - 16);
+  } else {
+    cx.textBaseline = 'middle'; cx.font = '400 17px "Mochiy Pop One",sans-serif'; cx.fillText(score.toLocaleString(), x + cw - 10, y + ch / 2 + 1);
   }
 }
 function drawEffects() {
