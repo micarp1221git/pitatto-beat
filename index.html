@@ -231,7 +231,8 @@ button{font-family:"Mochiy Pop One",sans-serif;font-weight:400;color:var(--ink);
    ========================================================= */
 
 /* ===== [設定] 判定の幅（秒）。大人向けの音ゲーと同じくらい ===== */
-const JUDGE = { p: 0.040, n: 0.080, o: 0.120 };
+// 人が叩くので、機械より少しゆるめ（10/11）
+const JUDGE = { p: 0.050, n: 0.090, o: 0.140 };
 const JUDGE_INFO = {
   p: { text: 'ピタッ！', color: '#ffd84a', w: 1.0 },
   n: { text: 'ナイス！', color: '#4ef0ff', w: 0.8 },
@@ -257,7 +258,7 @@ const LEVELS = [
 ];
 // C 以上で クリア（★1）。A で ★2、S で ★3
 const RANKS = [ ['SS', 990000, 3], ['S', 950000, 3], ['A', 880000, 2], ['B', 760000, 1], ['C', 600000, 1], ['D', 0, 0] ];
-const VERSION = 'v14';
+const VERSION = 'v15';
 const RANK_COLORS = { SS: '#ff5c8a', S: '#ffc61a', A: '#ff8a3d', B: '#22c97f', C: '#3d8bff', D: '#9aa3b8' };
 const AUTO = /[?&]auto/.test(location.search); // おてほん（テスト用・記録は別の箱）
 
@@ -325,9 +326,21 @@ function audioNow() {
   }
   return actx.currentTime - (actx.outputLatency || actx.baseLatency || 0);
 }
+// なめらかな時計：iPhone などは音の時計が細かく刻まれずカクつくので、
+// 画面の時計（performance.now）で進めて、音の時計に少しずつ寄せる
+const clk = { p: 0, a: 0, ok: false };
+function smoothNow() {
+  const raw = audioNow(), pn = performance.now();
+  if (!actx || actx.state !== 'running') { clk.ok = false; return raw; }
+  if (!clk.ok) { clk.p = pn; clk.a = raw; clk.ok = true; return raw; }
+  const pred = clk.a + (pn - clk.p) / 1000, err = raw - pred;
+  clk.p = pn;
+  clk.a = Math.abs(err) > 0.05 ? raw : pred + err * 0.08;
+  return clk.a;
+}
 // 指が触れた瞬間を音の時計に直す
 function eventAudioTime(e) {
-  const now = audioNow();
+  const now = smoothNow();
   if (e && e.timeStamp) {
     const lag = (performance.now() - e.timeStamp) / 1000;
     if (lag >= 0 && lag < 0.15) return now - lag;
@@ -640,7 +653,9 @@ const G = {
   press: new Array(LANES).fill(0), flash: new Array(LANES).fill(0), holdNote: new Array(LANES).fill(null), judgeDisp: null, banner: null, sky: 0, pausedAt: 0
 };
 const offset = () => Save.data.offset || 0;
-const songTime = () => audioNow() - G.startTime - offset();
+// 画面は音にぴったり合わせる（viewTime）。ずれ調整は叩いた判定にだけ使う（songTime）
+const viewTime = () => smoothNow() - G.startTime;
+const songTime = () => viewTime() - offset();
 
 function startSong() {
   if (!PlayLimit.canPlay()) { show('scrLimit'); return; }
@@ -725,7 +740,7 @@ function updatePlay(dt) {
   for (let i = G.lo; i < G.notes.length; i++) {
     const n = G.notes[i];
     if (n.t > st + 0.2) break;
-    if (AUTO && !n.judged && st >= n.t) {
+    if (AUTO && !n.judged && st + offset() >= n.t) {
       n.judged = 'p'; addJudge('p', 0, n, false); G.flash[n.lane] = 1;
       if (n.end) { n.holding = true; G.holdNote[n.lane] = n; }
     }
@@ -746,7 +761,7 @@ function updatePlay(dt) {
 }
 function pauseGame() {
   if (G.state !== 'play' || G.paused) return;
-  G.paused = true; G.pausedAt = songTime();
+  G.paused = true; G.pausedAt = viewTime();
   if (actx) actx.suspend();
   show('scrPause');
 }
@@ -904,7 +919,7 @@ function drawBackground(t, pulse) {
   }
 }
 function drawPlay(t) {
-  const st = G.paused ? G.pausedAt : songTime();
+  const st = G.paused ? G.pausedAt : viewTime();
   const pps = lineY / travelTime();
   const beatPh = st > 0 ? mod(st / G.S.beat, 1) : 1;
   const pulse = Math.pow(1 - beatPh, 3);
