@@ -258,7 +258,7 @@ const LEVELS = [
 ];
 // C 以上で クリア（★1）。A で ★2、S で ★3
 const RANKS = [ ['SS', 990000, 3], ['S', 950000, 3], ['A', 880000, 2], ['B', 760000, 1], ['C', 600000, 1], ['D', 0, 0] ];
-const VERSION = 'v15';
+const VERSION = 'v16';
 const RANK_COLORS = { SS: '#ff5c8a', S: '#ffc61a', A: '#ff8a3d', B: '#22c97f', C: '#3d8bff', D: '#9aa3b8' };
 const AUTO = /[?&]auto/.test(location.search); // おてほん（テスト用・記録は別の箱）
 
@@ -288,7 +288,7 @@ const PlayLimit = {
 };
 
 /* ===== [音] Web Audio。ゲームの時計は「音の時計」ひとつに揃える ===== */
-let actx = null, master = null, noiseBuf = null;
+let actx = null, master = null, hitOut = null, noiseBuf = null;
 function unlockAudio() {
   // iPhone はマナーモードのとき鳴らさない（スピーカーがオンのときだけ鳴る）
   try { if (navigator.audioSession) navigator.audioSession.type = 'ambient'; } catch (e) {}
@@ -310,6 +310,12 @@ function initAudio() {
   comp.threshold.value = -16; comp.ratio.value = 4; comp.attack.value = 0.003; comp.release.value = 0.15;
   master = actx.createGain(); master.gain.value = 0.85;
   master.connect(comp); comp.connect(actx.destination);
+  // たたいた音は コンプレッサー（先読みで少し遅れる）を通さず、まっすぐスピーカーへ。
+  // 割れないように なめらかに頭を丸めるだけ（遅れなし）
+  const clip = actx.createWaveShaper(), cv2 = new Float32Array(1024);
+  for (let i = 0; i < 1024; i++) { const x = i / 511.5 - 1; cv2[i] = Math.tanh(x * 1.6) / Math.tanh(1.6); }
+  clip.curve = cv2; hitOut = actx.createGain(); hitOut.gain.value = 0.8;
+  hitOut.connect(clip); clip.connect(actx.destination);
   noiseBuf = actx.createBuffer(1, actx.sampleRate, actx.sampleRate);
   const d = noiseBuf.getChannelData(0);
   for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
@@ -402,7 +408,14 @@ function drumVoice(dest, t, lane, v, open) {
 }
 // 自分でたたいたときの音の大きさ（ハイハットは控えめ）
 const HIT_VOL = [1, 0.9, 0.9, 0.9, 0.45, 0.75];
-function drumHit(lane, note) { drumVoice(master, actx.currentTime, lane, HIT_VOL[lane] * (note ? 1 : 0.8), note ? note.open : false); }
+function drumHit(lane, note) {
+  if (!actx) return;
+  if (actx.state !== 'running') actx.resume();
+  const t = actx.currentTime, v = HIT_VOL[lane] * (note ? 1 : 0.8);
+  // 頭に短い「カッ」を足して、鳴りはじめを はっきりさせる
+  noise(hitOut, t, 0.012, 'highpass', 2500, 0.6 * v);
+  drumVoice(hitOut, t, lane, v, note ? note.open : false);
+}
 // カウントの音（3・2・1 は「ピッ」、GO は高い「ピーン」）
 function countBeep(dest, t, go) {
   const o = actx.createOscillator(), g = actx.createGain();
@@ -1277,12 +1290,23 @@ $('btnToSelect').onclick = () => { G.state = 'menu'; renderSelect(); show('scrSe
 // タッチ：レーンの上なら どこを触っても反応する
 const pointerLane = {};
 function laneAt(x) { return Math.max(0, Math.min(LANES - 1, Math.floor((x - playX) / laneW))); }
-cv.addEventListener('pointerdown', e => {
+// 指は touchstart（iPhone・Fire でいちばん早く届く）、マウスやペンは pointerdown
+cv.addEventListener('touchstart', e => {
   if (G.state !== 'play') return;
+  e.preventDefault();
+  for (const t of e.changedTouches) { const l = laneAt(t.clientX); pointerLane['t' + t.identifier] = l; press(l, e); }
+}, { passive: false });
+function touchEnd(e) {
+  for (const t of e.changedTouches) { const k = 't' + t.identifier, l = pointerLane[k]; if (l === undefined) continue; delete pointerLane[k]; release(l, e); }
+}
+cv.addEventListener('touchend', touchEnd);
+cv.addEventListener('touchcancel', touchEnd);
+cv.addEventListener('pointerdown', e => {
+  if (G.state !== 'play' || e.pointerType === 'touch') return;
   e.preventDefault();
   const l = laneAt(e.clientX); pointerLane[e.pointerId] = l; press(l, e);
 });
-function pointerEnd(e) { const l = pointerLane[e.pointerId]; if (l === undefined) return; delete pointerLane[e.pointerId]; release(l, e); }
+function pointerEnd(e) { if (e.pointerType === 'touch') return; const l = pointerLane[e.pointerId]; if (l === undefined) return; delete pointerLane[e.pointerId]; release(l, e); }
 cv.addEventListener('pointerup', pointerEnd);
 cv.addEventListener('pointercancel', pointerEnd);
 cv.addEventListener('contextmenu', e => e.preventDefault());
