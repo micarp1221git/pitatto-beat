@@ -122,6 +122,7 @@ button{font-family:"Mochiy Pop One",sans-serif;font-weight:400;color:var(--ink);
 <section class="scr on" id="scrTitle">
   <h1 class="logo"><span>ピ</span><span>タ</span><span>ッ</span>とビート</h1>
   <div class="tag">おとに あわせて ピタッ！</div>
+  <div class="tag sub" id="iosNote" hidden></div>
   <button class="btn go" id="btnPlay">あそぶ</button>
   <div class="ver" id="verLine"></div>
 </section>
@@ -264,7 +265,7 @@ const LEVELS = [
 ];
 // C 以上で クリア（★1）。A で ★2、S で ★3
 const RANKS = [ ['SS', 990000, 3], ['S', 950000, 3], ['A', 880000, 2], ['B', 760000, 1], ['C', 600000, 1], ['D', 0, 0] ];
-const VERSION = 'v20';
+const VERSION = 'v21';
 const RANK_COLORS = { SS: '#ff5c8a', S: '#ffc61a', A: '#ff8a3d', B: '#22c97f', C: '#3d8bff', D: '#9aa3b8' };
 const AUTO = /[?&]auto/.test(location.search); // おてほん（テスト用・記録は別の箱）
 
@@ -309,7 +310,26 @@ function unlockAudio() {
   if (actx && actx.state !== 'running') { const pr = actx.resume(); if (pr && pr.catch) pr.catch(() => {}); }
 }
 // 画面のどこを触っても、止まっていた音を起こす
-['pointerdown', 'touchend', 'keydown'].forEach(ev => window.addEventListener(ev, () => { if (actx && actx.state !== 'running' && !G.paused) unlockAudio(); }, true));
+['pointerdown', 'touchend', 'keydown'].forEach(ev => window.addEventListener(ev, () => { if (actx && actx.state !== 'running' && !G.paused) reviveAudio(); }, true));
+// 🆕v21（11/2 見立て#7・iPhoneで鳴らない）: 起こしても0.5秒で 'running' にならなければ、音の装置を作り直す。
+//   曲の途中は作り直さない（予約した音が消えるため）。表に出たとき・状態が変わったときにも見る
+let reviveTimer = null, rebuilds = 0;
+function reviveAudio() {
+  unlockAudio();
+  if (!actx || reviveTimer) return;
+  reviveTimer = setTimeout(() => {
+    reviveTimer = null;
+    if (actx && actx.state !== 'running' && G.state !== 'play') {
+      try { actx.close(); } catch (e) {}
+      actx = null; rebuilds++;
+      initAudio();
+    }
+  }, 500);
+}
+document.addEventListener('visibilitychange', () => { if (!document.hidden && actx && actx.state !== 'running') reviveAudio(); });
+// iPhone かどうか・ホーム画面のアイコンから開いたか（iOS 26 のホーム画面アプリで Web Audio が鳴らない不具合 WebKit 291892）
+const IOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const STANDALONE = !!(navigator.standalone || (window.matchMedia && (matchMedia('(display-mode: fullscreen)').matches || matchMedia('(display-mode: standalone)').matches)));
 function chime() {
   const t = actx.currentTime + 0.02;
   [76, 79, 84].forEach((m, i) => tone(master, t + i * 0.09, m, 0.18, 'triangle', 0.25, 4000));
@@ -319,6 +339,7 @@ function initAudio() {
   if (actx) return;
   const AC = window.AudioContext || window.webkitAudioContext;
   try { actx = new AC({ latencyHint: 'interactive' }); } catch (e) { try { actx = new AC(); } catch (e2) { window.audioErr = 'AC:' + e2.message; return; } }
+  try { actx.onstatechange = () => { if (actx && actx.state !== 'running' && actx.state !== 'closed' && !document.hidden && !G.paused) reviveAudio(); }; } catch (e) {}
   unlockAudio();
   const comp = actx.createDynamicsCompressor();
   comp.threshold.value = -16; comp.ratio.value = 4; comp.attack.value = 0.003; comp.release.value = 0.15;
@@ -1352,8 +1373,16 @@ function showVer() {
   // 音のおくれ（秒→ミリ秒）: base＝音の処理の待ち／out＝スピーカーまで。Fireの実機で何ミリ出ているかを見るため（v18）
   const lat = actx ? Math.round(((actx.baseLatency || 0) + (actx.outputLatency || 0)) * 1000) : 0;
   $('verLine').textContent = VERSION + '　おと：' + (st === 'running' ? 'OK' : st) + (actx ? '　おくれ ' + lat + 'ms' : '');
-  $('verLine2').textContent = $('verLine').textContent + (window.audioErr ? '　' + window.audioErr : '');   // v20: 曲をえらぶ画面にも出す（iPhoneで音が出ない切り分け）
+  // v21: 曲えらび画面には、測った数字をまとめて出す（見立ての「測る表示」）
+  let det = '';
+  if (actx) {
+    const ms = v => Math.round((v || 0) * 1000);
+    det = '　base ' + ms(actx.baseLatency) + '／out ' + ms(actx.outputLatency) + '／時計 ' + ms(actx.currentTime - audioNow()) + 'ms／' + actx.sampleRate + 'Hz';
+  }
+  det += '／ずれ ' + Math.round((Save.data.offset || 0) * 1000) + 'ms' + (STANDALONE ? '／ホーム画面' : '／ブラウザ') + (rebuilds ? '／作り直し' + rebuilds : '');
+  $('verLine2').textContent = $('verLine').textContent + det + (window.audioErr ? '　' + window.audioErr : '');   // v20: 曲をえらぶ画面にも出す（iPhoneで音が出ない切り分け）
 }
+if (IOS) { const n = $('iosNote'); n.hidden = false; n.textContent = STANDALONE ? '🔕 マナーモードだと なりません。ホーム画面から ひらいて おとが でないときは、Safariで ひらいてね' : '🔕 マナーモードだと なりません'; }
 showVer(); setInterval(showVer, 1000);
 requestAnimationFrame(loop);
 </script>
