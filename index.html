@@ -138,7 +138,7 @@ button{font-family:"Mochiy Pop One",sans-serif;font-weight:400;color:var(--ink);
       <div class="opt">はやさ <button class="pm" id="spdDown">−</button><b id="spdVal">5</b><button class="pm" id="spdUp">＋</button></div>
       <div class="opt">おてほんの おと <button class="btn small sub" id="guideSnd">ON</button></div>
       <div class="opt">ドラムの おと <button class="btn small sub" id="tapSnd">ON</button></div>
-      <div class="opt note" id="tapNote" hidden>この たんまつは おとが すこし おくれて でます</div>
+      <div class="opt note" id="tapNote" hidden>この たんまつは「タン」を ノーツに あわせて ならします</div>
     </div>
     <div class="hint">おとが きこえないときは：マナーモードを きる／おとを おおきくする</div>
     <div class="row">
@@ -265,7 +265,7 @@ const LEVELS = [
 ];
 // C 以上で クリア（★1）。A で ★2、S で ★3
 const RANKS = [ ['SS', 990000, 3], ['S', 950000, 3], ['A', 880000, 2], ['B', 760000, 1], ['C', 600000, 1], ['D', 0, 0] ];
-const VERSION = 'v21';
+const VERSION = 'v22';
 const RANK_COLORS = { SS: '#ff5c8a', S: '#ffc61a', A: '#ff8a3d', B: '#22c97f', C: '#3d8bff', D: '#9aa3b8' };
 const AUTO = /[?&]auto/.test(location.search); // おてほん（テスト用・記録は別の箱）
 
@@ -443,14 +443,26 @@ function drumVoice(dest, t, lane, v, open) {
 }
 // 自分でたたいたときの音の大きさ（ハイハットは控えめ）
 const HIT_VOL = [0.9, 0.9, 0.9, 0.9, 0.9, 0.9];   // v19: 音を1つにしたので大きさもそろえる
-function drumHit(lane, note) {
+function drumHit(lane, note, k) {
   if (!actx) return;
   if (actx.state !== 'running') actx.resume();
-  const t = actx.currentTime, v = HIT_VOL[lane] * (note ? 1 : 0.8);
-  // 頭に短い「カッ」を足して、鳴りはじめを はっきりさせる
-  noise(hitOut, t, 0.012, 'highpass', 2500, 0.6 * v);
-  // 🆕v19（11/2 みかさん「音は同じにして、指ドラムじゃなくていい」）: どのレーンも同じ1つの音（スネアの「タン」）
-  drumVoice(hitOut, t, 2, v, false);
+  tapAt(hitOut, actx.currentTime, HIT_VOL[lane] * (note ? 1 : 0.8) * (k || 1));
+}
+// 「タン」1つ。頭に短い「カッ」を足して、鳴りはじめを はっきりさせる
+// 🆕v19（11/2 みかさん「音は同じにして、指ドラムじゃなくていい」）: どのレーンも同じ1つの音（スネアの「タン」）
+function tapAt(dest, t, v) {
+  noise(dest, t, 0.012, 'highpass', 2500, 0.6 * v);
+  drumVoice(dest, t, 2, v, false);
+}
+// 🆕v22 予約式の「タン」（11/2 みかさん「Fireで触って音が鳴るまですごいずれる」→見立て_20261102 #4）
+//   Fire は低遅延の音に非対応で、たたいてから鳴らすと 0.1〜0.2秒おくれる（Amazon公式仕様）。
+//   おくれる端末では、ノーツが線に重なる時刻に「タン」を先に予約する（Rhythm Quest と同じ方法）。
+//   ぴったりにたたけば指と同時に聞こえる。外したノーツも鳴る（ミスは光と文字で出る）。
+//   ノーツのない所をたたいたときだけ、小さな音をその場で鳴らす。3秒たたかずにいたら予約をやめる
+function preTapOn() {
+  if (!Save.data.tapSound || !actx || AUTO) return false;
+  const lat = (actx.baseLatency || 0) + (actx.outputLatency || 0);
+  return SLOW_AUDIO || lat + Math.max(0, Save.data.offset || 0) > 0.06;
 }
 // カウントの音（3・2・1 は「ピッ」、GO は高い「ピーン」）
 function countBeep(dest, t, go) {
@@ -469,9 +481,10 @@ function makeBus(step) {
   const wet = actx.createGain(); wet.gain.value = 0.22;
   lead.connect(dl); dl.connect(fb); fb.connect(dl); dl.connect(wet); wet.connect(out);
   const ghost = actx.createGain(); ghost.gain.value = 0.3; ghost.connect(out); // おてほんの ドラム（小さめ）
+  const tap = actx.createGain(); tap.connect(hitOut);   // v22 予約した「タン」（ひとやすみで消せるように）
   return {
-    out, lead, ghost,
-    kill() { try { out.gain.cancelScheduledValues(0); out.gain.setValueAtTime(0, actx.currentTime); } catch (e) {} setTimeout(() => { try { out.disconnect(); } catch (e) {} }, 400); }
+    out, lead, ghost, tap,
+    kill() { try { out.gain.cancelScheduledValues(0); out.gain.setValueAtTime(0, actx.currentTime); tap.gain.setValueAtTime(0, actx.currentTime); } catch (e) {} setTimeout(() => { try { out.disconnect(); tap.disconnect(); } catch (e) {} }, 400); }
   };
 }
 function fire(B, e, t, song) {
@@ -715,6 +728,7 @@ function startSong() {
   // ドラムの おとが ONなら、譜面のドラムは 自分で たたいて鳴らす
   G.mute = null;   // v19: たたく音を1つにしたので、曲のドラムは抜かずにそのまま鳴らす（v18までは抜いて、たたくと鳴る方式）
   G.lo = 0; G.evIdx = 0; G.gIdx = 0; G.gLast = -1;
+  G.pre = preTapOn(); G.tIdx = 0; G.tSlot = null;
   G.cnt = { p: 0, n: 0, o: 0, m: 0 }; G.combo = 0; G.maxCombo = 0; G.units = 0; G.fast = 0; G.slow = 0;
   G.total = G.notes.reduce((s, n) => s + (n.end ? 2 : 1), 0);
   G.press = new Array(LANES).fill(0); G.holdNote = new Array(LANES).fill(null); G.judgeDisp = null; G.banner = null; G.rankShown = null;
@@ -722,6 +736,8 @@ function startSong() {
   if (G.bus) G.bus.kill();
   G.bus = makeBus(G.S.step);
   G.startTime = actx.currentTime + 0.4 + 4 * G.S.beat;
+  // 「3秒たたかない」は最初のノーツから数える（カウントの間は数えない）
+  G.lastTap = performance.now() + (G.startTime + (G.notes.length ? G.notes[0].t : 0) - actx.currentTime) * 1000;
   startCount(0);
   G.state = 'play'; G.paused = false;
   show(null);
@@ -735,6 +751,15 @@ function scheduler() {
     if (t < actx.currentTime - 0.01) continue;
     if (G.mute && G.mute.has(e)) { if (Save.data.guide) fire({ out: G.bus.ghost, lead: G.bus.lead }, e, Math.max(t, actx.currentTime), G.S.song); }
     else fire(G.bus, e, Math.max(t, actx.currentTime), G.S.song);
+  }
+  if (!G.pre) return;
+  // v22: ノーツの時刻に「タン」を予約。ぴったりにたたく指の時刻＝曲の時刻＋ずれ
+  const off = offset(), quiet = performance.now() - G.lastTap > 3000;
+  while (G.tIdx < G.notes.length && G.startTime + G.notes[G.tIdx].t + off < horizon) {
+    const n = G.notes[G.tIdx++], t = G.startTime + n.t + off;
+    if (quiet || t < actx.currentTime - 0.01) continue;
+    if (G.tSlot !== n.t) tapAt(G.bus.tap, Math.max(t, actx.currentTime), 0.9);   // 同時のノーツは1回だけ
+    G.tSlot = n.t; n.pre = true;
   }
 }
 setInterval(scheduler, 25);
@@ -764,7 +789,12 @@ function press(lane, e) {
     if (n.lane !== lane || n.judged) continue;
     if (Math.abs(t - n.t) <= JUDGE.o) { target = n; break; }
   }
-  if (Save.data.tapSound) drumHit(lane, target);
+  if (Save.data.tapSound) {
+    if (!G.pre) drumHit(lane, target);
+    else if (!target) drumHit(lane, null, 0.5);       // v22: ノーツのない所は小さく、その場で
+    else if (!target.pre) drumHit(lane, target);      // 予約していなかったノーツ（たたき始め）はその場で
+  }
+  G.lastTap = performance.now();
   if (!target) return;
   const dt = t - target.t, ad = Math.abs(dt);
   const kind = ad <= JUDGE.p ? 'p' : ad <= JUDGE.n ? 'n' : 'o';
@@ -832,6 +862,7 @@ async function resumeGame() {
   G.evIdx = G.S.ev.findIndex(e => e.t >= at - 0.001); if (G.evIdx < 0) G.evIdx = G.S.ev.length;
   G.gIdx = G.notes.findIndex(n => n.t >= at); if (G.gIdx < 0) G.gIdx = G.notes.length;
   G.gLast = -1;
+  G.tIdx = G.gIdx; G.tSlot = null; G.lastTap = performance.now() + (G.startTime + at - actx.currentTime) * 1000;
   startCount(at);
   G.paused = false;
 }
@@ -1285,7 +1316,7 @@ function renderSelect() {
   if (!(Save.data.unlockAll || total >= LEVELS[G.lv].need)) G.lv = 0;
   $('spdVal').textContent = Save.data.speed;
   $('tapSnd').textContent = Save.data.tapSound ? 'ON' : 'OFF';
-  $('tapNote').hidden = !SLOW_AUDIO;
+  $('tapNote').hidden = !preTapOn();
   $('guideSnd').textContent = Save.data.guide ? 'ON' : 'OFF';
 }
 G.songIdx = Math.min(Save.data.sel.song || 0, SONGS.length - 1);
@@ -1379,7 +1410,7 @@ function showVer() {
     const ms = v => Math.round((v || 0) * 1000);
     det = '　base ' + ms(actx.baseLatency) + '／out ' + ms(actx.outputLatency) + '／時計 ' + ms(actx.currentTime - audioNow()) + 'ms／' + actx.sampleRate + 'Hz';
   }
-  det += '／ずれ ' + Math.round((Save.data.offset || 0) * 1000) + 'ms' + (STANDALONE ? '／ホーム画面' : '／ブラウザ') + (rebuilds ? '／作り直し' + rebuilds : '');
+  det += '／ずれ ' + Math.round((Save.data.offset || 0) * 1000) + 'ms' + (STANDALONE ? '／ホーム画面' : '／ブラウザ') + (rebuilds ? '／作り直し' + rebuilds : '') + (preTapOn() ? '／タン=よやく' : '／タン=すぐ');
   $('verLine2').textContent = $('verLine').textContent + det + (window.audioErr ? '　' + window.audioErr : '');   // v20: 曲をえらぶ画面にも出す（iPhoneで音が出ない切り分け）
 }
 if (IOS) { const n = $('iosNote'); n.hidden = false; n.textContent = STANDALONE ? '🔕 マナーモードだと なりません。ホーム画面から ひらいて おとが でないときは、Safariで ひらいてね' : '🔕 マナーモードだと なりません'; }
