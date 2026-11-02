@@ -259,7 +259,7 @@ const LEVELS = [
 ];
 // C 以上で クリア（★1）。A で ★2、S で ★3
 const RANKS = [ ['SS', 990000, 3], ['S', 950000, 3], ['A', 880000, 2], ['B', 760000, 1], ['C', 600000, 1], ['D', 0, 0] ];
-const VERSION = 'v18';
+const VERSION = 'v19';
 const RANK_COLORS = { SS: '#ff5c8a', S: '#ffc61a', A: '#ff8a3d', B: '#22c97f', C: '#3d8bff', D: '#9aa3b8' };
 const AUTO = /[?&]auto/.test(location.search); // おてほん（テスト用・記録は別の箱）
 
@@ -416,14 +416,15 @@ function drumVoice(dest, t, lane, v, open) {
   }
 }
 // 自分でたたいたときの音の大きさ（ハイハットは控えめ）
-const HIT_VOL = [1, 0.9, 0.9, 0.9, 0.45, 0.75];
+const HIT_VOL = [0.9, 0.9, 0.9, 0.9, 0.9, 0.9];   // v19: 音を1つにしたので大きさもそろえる
 function drumHit(lane, note) {
   if (!actx) return;
   if (actx.state !== 'running') actx.resume();
   const t = actx.currentTime, v = HIT_VOL[lane] * (note ? 1 : 0.8);
   // 頭に短い「カッ」を足して、鳴りはじめを はっきりさせる
   noise(hitOut, t, 0.012, 'highpass', 2500, 0.6 * v);
-  drumVoice(hitOut, t, lane, v, note ? note.open : false);
+  // 🆕v19（11/2 みかさん「音は同じにして、指ドラムじゃなくていい」）: どのレーンも同じ1つの音（スネアの「タン」）
+  drumVoice(hitOut, t, 2, v, false);
 }
 // カウントの音（3・2・1 は「ピッ」、GO は高い「ピーン」）
 function countBeep(dest, t, go) {
@@ -686,7 +687,7 @@ function startSong() {
   G.S = buildSong(song);
   G.notes = buildChart(G.S, G.lv);
   // ドラムの おとが ONなら、譜面のドラムは 自分で たたいて鳴らす
-  G.mute = !AUTO && Save.data.tapSound ? new Set(G.notes.map(n => n.ev)) : null;
+  G.mute = null;   // v19: たたく音を1つにしたので、曲のドラムは抜かずにそのまま鳴らす（v18までは抜いて、たたくと鳴る方式）
   G.lo = 0; G.evIdx = 0; G.gIdx = 0; G.gLast = -1;
   G.cnt = { p: 0, n: 0, o: 0, m: 0 }; G.combo = 0; G.maxCombo = 0; G.units = 0; G.fast = 0; G.slow = 0;
   G.total = G.notes.reduce((s, n) => s + (n.end ? 2 : 1), 0);
