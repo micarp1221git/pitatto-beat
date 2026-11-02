@@ -136,6 +136,7 @@ button{font-family:"Mochiy Pop One",sans-serif;font-weight:400;color:var(--ink);
       <div class="opt">はやさ <button class="pm" id="spdDown">−</button><b id="spdVal">5</b><button class="pm" id="spdUp">＋</button></div>
       <div class="opt">おてほんの おと <button class="btn small sub" id="guideSnd">ON</button></div>
       <div class="opt">ドラムの おと <button class="btn small sub" id="tapSnd">ON</button></div>
+      <div class="opt note" id="tapNote" hidden>この たんまつは おとが おくれて でるので、OFFが おすすめ</div>
     </div>
     <div class="hint">おとが きこえないときは：マナーモードを きる／おとを おおきくする</div>
     <div class="row">
@@ -258,7 +259,7 @@ const LEVELS = [
 ];
 // C 以上で クリア（★1）。A で ★2、S で ★3
 const RANKS = [ ['SS', 990000, 3], ['S', 950000, 3], ['A', 880000, 2], ['B', 760000, 1], ['C', 600000, 1], ['D', 0, 0] ];
-const VERSION = 'v16';
+const VERSION = 'v17';
 const RANK_COLORS = { SS: '#ff5c8a', S: '#ffc61a', A: '#ff8a3d', B: '#22c97f', C: '#3d8bff', D: '#9aa3b8' };
 const AUTO = /[?&]auto/.test(location.search); // おてほん（テスト用・記録は別の箱）
 
@@ -276,6 +277,12 @@ const Save = {
   totalStars() { let s = 0; const R = this.data.records; for (const a in R) for (const b in R[a]) s += R[a][b].stars || 0; return s; }
 };
 Save.load();
+// 🆕v17（2026-11-02 みかさん「Fireタブレットで、触って音が鳴るまですごいずれる」）
+// Fire（Android）は本体のスピーカーでも音が0.1〜0.2秒おくれて出る。たたいた音は先に鳴らしておけないので、
+// こういう端末では「ドラムの おと」を最初からOFFにする（OFFなら曲のドラムがそのまま時間どおり鳴る）。
+// 自分でON/OFFを押したあとは、その選択を守る（tapChosen）
+const SLOW_AUDIO = /Silk|KF[A-Z]{2,4}|Kindle|AFT[A-Z]|Android/.test(navigator.userAgent);
+if (SLOW_AUDIO && !Save.data.tapChosen && !AUTO) { Save.data.tapSound = false; Save.save(); }
 
 /* ===== [1日の時間] いまはOFF。enabled を true にすると 1日 dailySec 秒まで ===== */
 const PlayLimit = {
@@ -1249,6 +1256,7 @@ function renderSelect() {
   if (!(Save.data.unlockAll || total >= LEVELS[G.lv].need)) G.lv = 0;
   $('spdVal').textContent = Save.data.speed;
   $('tapSnd').textContent = Save.data.tapSound ? 'ON' : 'OFF';
+  $('tapNote').hidden = !SLOW_AUDIO;
   $('guideSnd').textContent = Save.data.guide ? 'ON' : 'OFF';
 }
 G.songIdx = Math.min(Save.data.sel.song || 0, SONGS.length - 1);
@@ -1272,7 +1280,7 @@ $('btnStart').onclick = () => {
 };
 $('spdDown').onclick = () => { Save.data.speed = Math.max(1, Save.data.speed - 1); Save.save(); renderSelect(); };
 $('spdUp').onclick = () => { Save.data.speed = Math.min(10, Save.data.speed + 1); Save.save(); renderSelect(); };
-$('tapSnd').onclick = () => { Save.data.tapSound = !Save.data.tapSound; Save.save(); renderSelect(); };
+$('tapSnd').onclick = () => { Save.data.tapSound = !Save.data.tapSound; Save.data.tapChosen = true; Save.save(); renderSelect(); };
 $('guideSnd').onclick = () => { Save.data.guide = !Save.data.guide; Save.save(); renderSelect(); };
 $('calCircle').addEventListener('pointerdown', calTap);
 $('scrCalib').addEventListener('pointerdown', e => { if (e.target.closest('button') || e.target.id === 'calCircle') return; calTap(e); });
