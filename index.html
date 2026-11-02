@@ -128,6 +128,7 @@ button{font-family:"Mochiy Pop One",sans-serif;font-weight:400;color:var(--ink);
 
 <!-- きょくえらび -->
 <section class="scr" id="scrSelect">
+  <div class="ver" id="verLine2"></div>
   <div class="panel">
     <div class="head"><h2 style="margin:0">きょくを えらぼう</h2><div class="stars" id="starTotal">★ 0</div></div>
     <div class="songs" id="songList"></div>
@@ -224,6 +225,10 @@ button{font-family:"Mochiy Pop One",sans-serif;font-weight:400;color:var(--ink);
 </section>
 
 <script>
+// v20: 画面に出るエラーを拾う（iPhoneで音が出ない切り分け・曲をえらぶ画面の下に出る）
+window.addEventListener('error', e => { window.audioErr = 'ERR:' + (e.message || '').slice(0, 60); });
+window.addEventListener('unhandledrejection', e => { window.audioErr = 'REJ:' + String(e.reason && e.reason.message || e.reason).slice(0, 60); });
+
 'use strict';
 /* =========================================================
    ピタッとビート
@@ -259,7 +264,7 @@ const LEVELS = [
 ];
 // C 以上で クリア（★1）。A で ★2、S で ★3
 const RANKS = [ ['SS', 990000, 3], ['S', 950000, 3], ['A', 880000, 2], ['B', 760000, 1], ['C', 600000, 1], ['D', 0, 0] ];
-const VERSION = 'v19';
+const VERSION = 'v20';
 const RANK_COLORS = { SS: '#ff5c8a', S: '#ffc61a', A: '#ff8a3d', B: '#22c97f', C: '#3d8bff', D: '#9aa3b8' };
 const AUTO = /[?&]auto/.test(location.search); // おてほん（テスト用・記録は別の箱）
 
@@ -313,7 +318,7 @@ function initAudio() {
   unlockAudio();
   if (actx) return;
   const AC = window.AudioContext || window.webkitAudioContext;
-  try { actx = new AC({ latencyHint: 'interactive' }); } catch (e) { actx = new AC(); }
+  try { actx = new AC({ latencyHint: 'interactive' }); } catch (e) { try { actx = new AC(); } catch (e2) { window.audioErr = 'AC:' + e2.message; return; } }
   unlockAudio();
   const comp = actx.createDynamicsCompressor();
   comp.threshold.value = -16; comp.ratio.value = 4; comp.attack.value = 0.003; comp.release.value = 0.15;
@@ -1347,6 +1352,7 @@ function showVer() {
   // 音のおくれ（秒→ミリ秒）: base＝音の処理の待ち／out＝スピーカーまで。Fireの実機で何ミリ出ているかを見るため（v18）
   const lat = actx ? Math.round(((actx.baseLatency || 0) + (actx.outputLatency || 0)) * 1000) : 0;
   $('verLine').textContent = VERSION + '　おと：' + (st === 'running' ? 'OK' : st) + (actx ? '　おくれ ' + lat + 'ms' : '');
+  $('verLine2').textContent = $('verLine').textContent + (window.audioErr ? '　' + window.audioErr : '');   // v20: 曲をえらぶ画面にも出す（iPhoneで音が出ない切り分け）
 }
 showVer(); setInterval(showVer, 1000);
 requestAnimationFrame(loop);
