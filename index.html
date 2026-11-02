@@ -136,7 +136,7 @@ button{font-family:"Mochiy Pop One",sans-serif;font-weight:400;color:var(--ink);
       <div class="opt">はやさ <button class="pm" id="spdDown">−</button><b id="spdVal">5</b><button class="pm" id="spdUp">＋</button></div>
       <div class="opt">おてほんの おと <button class="btn small sub" id="guideSnd">ON</button></div>
       <div class="opt">ドラムの おと <button class="btn small sub" id="tapSnd">ON</button></div>
-      <div class="opt note" id="tapNote" hidden>この たんまつは おとが おくれて でるので、OFFが おすすめ</div>
+      <div class="opt note" id="tapNote" hidden>この たんまつは おとが すこし おくれて でます</div>
     </div>
     <div class="hint">おとが きこえないときは：マナーモードを きる／おとを おおきくする</div>
     <div class="row">
@@ -259,7 +259,7 @@ const LEVELS = [
 ];
 // C 以上で クリア（★1）。A で ★2、S で ★3
 const RANKS = [ ['SS', 990000, 3], ['S', 950000, 3], ['A', 880000, 2], ['B', 760000, 1], ['C', 600000, 1], ['D', 0, 0] ];
-const VERSION = 'v17';
+const VERSION = 'v18';
 const RANK_COLORS = { SS: '#ff5c8a', S: '#ffc61a', A: '#ff8a3d', B: '#22c97f', C: '#3d8bff', D: '#9aa3b8' };
 const AUTO = /[?&]auto/.test(location.search); // おてほん（テスト用・記録は別の箱）
 
@@ -282,7 +282,9 @@ Save.load();
 // こういう端末では「ドラムの おと」を最初からOFFにする（OFFなら曲のドラムがそのまま時間どおり鳴る）。
 // 自分でON/OFFを押したあとは、その選択を守る（tapChosen）
 const SLOW_AUDIO = /Silk|KF[A-Z]{2,4}|Kindle|AFT[A-Z]|Android/.test(navigator.userAgent);
-if (SLOW_AUDIO && !Save.data.tapChosen && !AUTO) { Save.data.tapSound = false; Save.save(); }
+// 🔁v18: 初期OFFはやめた（みかさん「それはもう音ゲーじゃなくないですか？」）。たたいて鳴るのがこのゲームの芯。
+//   v17でOFFにされた端末はONに戻す（自分で選んだ人はそのまま）。遅れの大きさは右下の数字で測る
+if (SLOW_AUDIO && !Save.data.tapChosen && !AUTO && Save.data.tapSound === false) { Save.data.tapSound = true; Save.save(); }
 
 /* ===== [1日の時間] いまはOFF。enabled を true にすると 1日 dailySec 秒まで ===== */
 const PlayLimit = {
@@ -1341,7 +1343,9 @@ if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.se
 if (AUTO) { G.lv = Math.min(3, parseInt((location.search.match(/lv=(\d)/) || [0, 0])[1], 10)); Save.data.unlockAll = true; }
 function showVer() {
   const st = actx ? actx.state : 'まだ';
-  $('verLine').textContent = VERSION + '　おと：' + (st === 'running' ? 'OK' : st);
+  // 音のおくれ（秒→ミリ秒）: base＝音の処理の待ち／out＝スピーカーまで。Fireの実機で何ミリ出ているかを見るため（v18）
+  const lat = actx ? Math.round(((actx.baseLatency || 0) + (actx.outputLatency || 0)) * 1000) : 0;
+  $('verLine').textContent = VERSION + '　おと：' + (st === 'running' ? 'OK' : st) + (actx ? '　おくれ ' + lat + 'ms' : '');
 }
 showVer(); setInterval(showVer, 1000);
 requestAnimationFrame(loop);
