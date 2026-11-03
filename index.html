@@ -265,7 +265,7 @@ const LEVELS = [
 ];
 // C 以上で クリア（★1）。A で ★2、S で ★3
 const RANKS = [ ['SS', 990000, 3], ['S', 950000, 3], ['A', 880000, 2], ['B', 760000, 1], ['C', 600000, 1], ['D', 0, 0] ];
-const VERSION = 'v22';
+const VERSION = 'v23';
 const RANK_COLORS = { SS: '#ff5c8a', S: '#ffc61a', A: '#ff8a3d', B: '#22c97f', C: '#3d8bff', D: '#9aa3b8' };
 const AUTO = /[?&]auto/.test(location.search); // おてほん（テスト用・記録は別の箱）
 
@@ -656,16 +656,15 @@ function wantDrum(d, lv, fast) {
     if (T === 'k_down') return s === 0 ? {} : null;
     if (T === 's_back') return s === 12 || (ch && !fast && s === 4) ? {} : null;
     if (T === 'h_8') return ch && !fast && s === 8 ? {} : null;
-    if (T === 'tom') return (d.b % 8 === 3 ? s === 12 : s === 14) ? {} : null;
+    if (T === 'tom') return s === 12 ? {} : null;
     if (T === 's_roll') return s % 4 === 0 ? {} : null;
     return null;
   }
-  if (lv === 1) {          // ふつう：ドン・バシ に ハイハットと タムが まざる
+  if (lv === 1) {          // ふつう：ドン・バシ に ハイハットと タムが まざる。裏拍は小節の終わりの1つだけ（v23 みかさん11/3「ふつうも少なめ」）
     if (T === 'k_down') return s === 0 || ch ? {} : null;
     if (T === 's_back') return {};
-    if (T === 'h_off') return fast ? s === 14 : (s === 6 || s === 14);
-    if (T === 'k_sync') return ch && !fast ? {} : null;
-    if (T === 'tom' || T === 's_roll' || T === 's_build' || T === 'tom_s') return s % 2 === 0 ? {} : null;
+    if (T === 'h_off') return !fast && s === 14 && d.b % 2 === 1 ? {} : null;
+    if (T === 'tom' || T === 's_roll' || T === 's_build' || T === 'tom_s') return s % 4 === 0 || s === 14 ? {} : null;
     return null;
   }
   if (lv === 2) {          // むずかしい：キックとスネアに、ハイハットとタムの細かいところ
@@ -687,6 +686,7 @@ function buildChart(S, lv) {
   const maxN = lv === 0 ? 1 : 2, minGap = [4, 2, 1, 1][lv];
   const byG = new Map();
   S.drums.forEach(d => {
+    if (lv === 0 && d.g % 4) return;   // v23 かんたん：裏拍は出さない（みかさん11/3「やさしいモードで裏拍入れるのやめましょう」）
     const w = wantDrum(d, lv, fast); if (!w) return;
     if (!byG.has(d.g)) byG.set(d.g, []);
     byG.get(d.g).push({ d, len: w.len || 0 });
